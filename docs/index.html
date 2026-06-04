@@ -671,7 +671,7 @@ footer p{ font-size:13.5px; color:var(--txt-3); max-width:42ch; }
         <div class="toggle" id="tg-judgment" data-kind="judgment"><span class="sw"></span><span>Spotlight&nbsp;◆&nbsp;judgment</span></div>
       </div>
 
-      <div class="pipeline" id="pipeline"><!-- stages injected by JS --></div>
+      <div class="pipeline" id="pipeline-grid"><!-- stages injected by JS --></div>
 
       <div class="loop-note">
         <span>↺</span>
@@ -1915,7 +1915,7 @@ const COMMANDS = [
 /* ============================================================
    RENDER: pipeline stages
    ============================================================ */
-const pipeEl = document.getElementById('pipeline');
+const pipeEl = document.getElementById('pipeline-grid');
 const detailEl = document.getElementById('stage-detail');
 STAGES.forEach((s, i) => {
   const el = document.createElement('div');
