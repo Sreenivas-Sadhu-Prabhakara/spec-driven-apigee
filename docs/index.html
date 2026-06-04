@@ -1,0 +1,2268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Spec-Driven Apigee X — The Contract Is the Source of Truth</title>
+<meta name="description" content="A blueprint for building Apigee X API proxies contract-first with Claude Code: lint → render → policies → tests → validate → review → deploy. Walked through end-to-end with the Meridian Bank Open Banking Accounts API." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   SPEC-DRIVEN APIGEE — BLUEPRINT
+   Concept: an engineering blueprint where the core principle
+   "separate deterministic generation from judgment" IS the
+   visual language. Cyan = machine/deterministic. Amber = human/judgment.
+   ============================================================ */
+
+:root{
+  --ink:        #070b14;   /* deep blueprint navy */
+  --ink-2:      #0b1120;
+  --panel:      #0e1626;
+  --panel-2:    #111c30;
+  --line:       rgba(120,170,205,0.14);
+  --line-soft:  rgba(120,170,205,0.07);
+  --grid:       rgba(110,165,200,0.045);
+
+  --txt:        #e7eef7;
+  --txt-2:      #aab8cc;
+  --txt-3:      #6c7d96;
+
+  --cyan:       #45c8e6;   /* DETERMINISTIC / machine */
+  --cyan-deep:  #1f93b8;
+  --cyan-glow:  rgba(69,200,230,0.20);
+  --amber:      #f4b740;   /* JUDGMENT / human */
+  --amber-deep: #c98a16;
+  --amber-glow: rgba(244,183,64,0.18);
+
+  --red:        #f0655e;   /* critical / pitfall */
+  --green:      #6fd693;   /* pass / tests green */
+  --violet:     #9d8cf0;
+
+  --r:          14px;
+  --r-sm:       8px;
+  --maxw:       1180px;
+
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --disp: "Fraunces", Georgia, serif;
+}
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+html{ scroll-behavior:smooth; -webkit-text-size-adjust:100%; }
+body{
+  font-family:var(--sans);
+  background:var(--ink);
+  color:var(--txt);
+  line-height:1.6;
+  overflow-x:hidden;
+  font-weight:300;
+  letter-spacing:0.005em;
+}
+
+/* ---- Blueprint grid + grain atmosphere ---- */
+.bg-fx{ position:fixed; inset:0; z-index:-2; pointer-events:none; }
+.bg-grid{
+  position:fixed; inset:-2px; z-index:-2; pointer-events:none;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 28px 28px, 28px 28px, 140px 140px, 140px 140px;
+  mask-image: radial-gradient(ellipse 120% 90% at 50% 0%, #000 35%, transparent 95%);
+}
+.bg-glow{
+  position:fixed; inset:0; z-index:-2; pointer-events:none;
+  background:
+    radial-gradient(900px 520px at 78% -8%, var(--cyan-glow), transparent 60%),
+    radial-gradient(760px 520px at 12% 6%, var(--amber-glow), transparent 62%),
+    radial-gradient(1100px 800px at 50% 120%, rgba(31,147,184,0.10), transparent 70%);
+}
+.bg-grain{
+  position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:0.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- Selection ---- */
+::selection{ background:var(--cyan); color:var(--ink); }
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar{ width:11px; height:11px; }
+::-webkit-scrollbar-track{ background:var(--ink-2); }
+::-webkit-scrollbar-thumb{ background:#243349; border-radius:20px; border:3px solid var(--ink-2); }
+::-webkit-scrollbar-thumb:hover{ background:#324863; }
+
+/* ============================ NAV ============================ */
+nav{
+  position:fixed; top:0; left:0; right:0; z-index:100;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px clamp(16px,4vw,40px);
+  background:rgba(7,11,20,0.72);
+  backdrop-filter:blur(14px) saturate(140%);
+  border-bottom:1px solid var(--line-soft);
+  transition:border-color .3s, background .3s;
+}
+nav.scrolled{ border-bottom-color:var(--line); background:rgba(7,11,20,0.9); }
+.brand{ display:flex; align-items:center; gap:11px; font-family:var(--mono); font-size:13px; letter-spacing:0.02em; }
+.brand .mark{
+  width:30px; height:30px; flex:none; position:relative;
+  border:1.5px solid var(--cyan); border-radius:6px;
+  display:grid; place-items:center; color:var(--cyan); font-weight:600;
+  box-shadow:0 0 0 4px rgba(69,200,230,0.06), inset 0 0 12px rgba(69,200,230,0.08);
+}
+.brand .mark::after{ content:""; position:absolute; inset:-1.5px; border-radius:6px; border:1px solid var(--amber); opacity:0.45; transform:translate(3px,3px); }
+.brand b{ font-weight:600; color:var(--txt); }
+.brand span{ color:var(--txt-3); }
+.nav-links{ display:flex; gap:4px; align-items:center; }
+.nav-links a{
+  font-family:var(--mono); font-size:11.5px; letter-spacing:0.06em; text-transform:uppercase;
+  color:var(--txt-3); text-decoration:none; padding:8px 12px; border-radius:6px;
+  transition:color .2s, background .2s; position:relative;
+}
+.nav-links a:hover{ color:var(--txt); }
+.nav-links a.active{ color:var(--cyan); }
+.nav-links a.active::after{ content:""; position:absolute; left:12px; right:12px; bottom:2px; height:1.5px; background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+.nav-toggle{ display:none; }
+@media(max-width:880px){
+  .nav-links{ display:none; }
+}
+
+/* ============================ LAYOUT ============================ */
+section{ position:relative; padding:clamp(70px,9vw,140px) clamp(16px,4vw,40px); }
+.wrap{ max-width:var(--maxw); margin:0 auto; }
+.wrap-narrow{ max-width:920px; margin:0 auto; }
+
+/* Blueprint section label */
+.fig{
+  display:inline-flex; align-items:center; gap:10px;
+  font-family:var(--mono); font-size:11.5px; letter-spacing:0.22em; text-transform:uppercase;
+  color:var(--cyan); margin-bottom:22px;
+}
+.fig::before{ content:""; width:30px; height:1px; background:var(--cyan); box-shadow:0 0 6px var(--cyan-glow); }
+.fig .n{ color:var(--txt-3); }
+.fig.amber{ color:var(--amber); }
+.fig.amber::before{ background:var(--amber); box-shadow:0 0 6px var(--amber-glow); }
+
+h2.title{
+  font-family:var(--disp); font-weight:500; line-height:1.04;
+  font-size:clamp(30px,5vw,56px); letter-spacing:-0.01em; color:var(--txt);
+  margin-bottom:18px; max-width:18ch;
+}
+h2.title em{ font-style:italic; color:var(--cyan); }
+h2.title .am{ color:var(--amber); font-style:italic; }
+.lead{ font-size:clamp(16px,1.6vw,19px); color:var(--txt-2); max-width:62ch; font-weight:300; }
+.lead b{ color:var(--txt); font-weight:500; }
+
+/* ============================ HERO ============================ */
+.hero{ min-height:100vh; display:flex; flex-direction:column; justify-content:center; padding-top:120px; }
+.hero-tag{
+  font-family:var(--mono); font-size:12px; letter-spacing:0.28em; text-transform:uppercase;
+  color:var(--txt-3); margin-bottom:26px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;
+}
+.hero-tag .dot{ width:6px; height:6px; border-radius:50%; background:var(--cyan); box-shadow:0 0 10px var(--cyan); animation:pulse 2.4s infinite; }
+@keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.3; } }
+
+.hero h1{
+  font-family:var(--disp); font-weight:400;
+  font-size:clamp(40px,8.5vw,108px); line-height:0.98; letter-spacing:-0.02em;
+  margin-bottom:30px; max-width:16ch;
+}
+.hero h1 .ln{ display:block; overflow:hidden; }
+.hero h1 i{ font-style:italic; }
+.hero h1 .c1{ color:var(--cyan); }
+.hero h1 .c2{ color:var(--amber); }
+.hero h1 .frame{
+  position:relative; display:inline-block;
+}
+.hero h1 .frame::before, .hero h1 .frame::after{
+  content:""; position:absolute; width:14px; height:14px; opacity:.6;
+}
+.hero h1 .frame::before{ top:-6px; left:-12px; border-top:2px solid var(--cyan); border-left:2px solid var(--cyan); }
+.hero h1 .frame::after{ bottom:-2px; right:-12px; border-bottom:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+
+.hero-sub{ font-size:clamp(17px,2vw,22px); color:var(--txt-2); max-width:60ch; font-weight:300; margin-bottom:40px; }
+.hero-sub b{ color:var(--txt); font-weight:500; }
+
+.hero-cta{ display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+.btn{
+  font-family:var(--mono); font-size:13px; letter-spacing:0.04em;
+  padding:14px 24px; border-radius:9px; text-decoration:none; cursor:pointer;
+  display:inline-flex; align-items:center; gap:10px; border:1px solid transparent;
+  transition:transform .15s, box-shadow .25s, background .2s, border-color .2s;
+}
+.btn-primary{ background:var(--cyan); color:var(--ink); font-weight:600; box-shadow:0 8px 30px -8px var(--cyan-glow); }
+.btn-primary:hover{ transform:translateY(-2px); box-shadow:0 14px 40px -8px var(--cyan-glow); }
+.btn-ghost{ border-color:var(--line); color:var(--txt-2); background:rgba(255,255,255,0.01); }
+.btn-ghost:hover{ border-color:var(--amber); color:var(--amber); transform:translateY(-2px); }
+.btn .arr{ transition:transform .2s; }
+.btn:hover .arr{ transform:translate(3px,-3px); }
+
+/* Hero equation strip */
+.equation{
+  margin-top:62px; padding:22px 26px; border:1px solid var(--line); border-radius:var(--r);
+  background:linear-gradient(180deg, rgba(17,28,48,0.6), rgba(11,17,32,0.4));
+  display:flex; align-items:center; gap:clamp(10px,2vw,26px); flex-wrap:wrap;
+  font-family:var(--mono); font-size:clamp(12px,1.5vw,15px); position:relative; overflow:hidden;
+}
+.equation::before{
+  content:"FIG.00 — INVARIANT"; position:absolute; top:9px; right:14px;
+  font-size:9.5px; letter-spacing:0.2em; color:var(--txt-3);
+}
+.eq-tok{ display:flex; flex-direction:column; gap:3px; }
+.eq-tok .k{ color:var(--txt); font-weight:600; }
+.eq-tok .v{ font-size:10.5px; color:var(--txt-3); letter-spacing:0.05em; }
+.eq-op{ color:var(--cyan); font-size:20px; opacity:.7; }
+.eq-tok.src .k{ color:var(--cyan); }
+.eq-tok.out .k{ color:var(--amber); }
+
+.scroll-hint{
+  position:absolute; bottom:30px; left:50%; transform:translateX(-50%);
+  font-family:var(--mono); font-size:10px; letter-spacing:0.25em; color:var(--txt-3);
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+}
+.scroll-hint .bar{ width:1px; height:34px; background:linear-gradient(var(--cyan), transparent); animation:drop 2s infinite; }
+@keyframes drop{ 0%{ transform:scaleY(0); transform-origin:top; } 50%{ transform:scaleY(1); transform-origin:top; } 51%{ transform-origin:bottom; } 100%{ transform:scaleY(0); transform-origin:bottom; } }
+
+/* ============================ DUALITY LEGEND ============================ */
+.legend{
+  display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:40px;
+}
+@media(max-width:680px){ .legend{ grid-template-columns:1fr; } }
+.legend-card{
+  border:1px solid var(--line); border-radius:var(--r); padding:24px;
+  background:var(--panel); position:relative; overflow:hidden;
+}
+.legend-card .glyph{ font-size:22px; margin-bottom:12px; }
+.legend-card h4{ font-family:var(--mono); font-size:13px; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:8px; }
+.legend-card p{ font-size:14.5px; color:var(--txt-2); }
+.legend-card .edge{ position:absolute; left:0; top:0; bottom:0; width:3px; }
+.legend-card.cool .edge{ background:var(--cyan); } .legend-card.cool h4{ color:var(--cyan); }
+.legend-card.warm .edge{ background:var(--amber); } .legend-card.warm h4{ color:var(--amber); }
+.legend-card .tags{ margin-top:14px; display:flex; gap:6px; flex-wrap:wrap; }
+.tag{
+  font-family:var(--mono); font-size:10.5px; padding:4px 9px; border-radius:20px;
+  border:1px solid var(--line); color:var(--txt-3); letter-spacing:0.03em;
+}
+.legend-card.cool .tag{ border-color:rgba(69,200,230,0.3); color:var(--cyan); }
+.legend-card.warm .tag{ border-color:rgba(244,183,64,0.3); color:var(--amber); }
+
+/* ============================ PRINCIPLES ============================ */
+.principles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; margin-top:46px; }
+.principle{ background:var(--panel); padding:28px 24px; transition:background .25s; position:relative; }
+.principle:hover{ background:var(--panel-2); }
+.principle .num{ font-family:var(--mono); font-size:11px; color:var(--cyan); letter-spacing:0.1em; }
+.principle h4{ font-family:var(--disp); font-weight:500; font-size:20px; margin:12px 0 8px; }
+.principle p{ font-size:13.5px; color:var(--txt-2); }
+
+/* ============================ PIPELINE ============================ */
+.pipe-wrap{ margin-top:50px; }
+.pipe-controls{ display:flex; gap:16px; align-items:center; margin-bottom:26px; flex-wrap:wrap; }
+.toggle{
+  display:inline-flex; align-items:center; gap:10px; cursor:pointer;
+  font-family:var(--mono); font-size:12px; color:var(--txt-2); user-select:none;
+}
+.toggle .sw{ width:42px; height:23px; border-radius:20px; background:#1a2740; border:1px solid var(--line); position:relative; transition:background .2s; flex:none; }
+.toggle .sw::after{ content:""; position:absolute; top:2px; left:2px; width:17px; height:17px; border-radius:50%; background:var(--txt-3); transition:transform .25s, background .2s; }
+.toggle.on .sw{ background:rgba(69,200,230,0.25); border-color:var(--cyan); }
+.toggle.on .sw::after{ transform:translateX(19px); background:var(--cyan); box-shadow:0 0 10px var(--cyan); }
+
+.pipeline{ display:grid; grid-template-columns:repeat(8,1fr); gap:8px; position:relative; }
+@media(max-width:1000px){ .pipeline{ grid-template-columns:repeat(4,1fr); } }
+@media(max-width:560px){ .pipeline{ grid-template-columns:repeat(2,1fr); } }
+.stage{
+  border:1px solid var(--line); border-radius:12px; padding:16px 12px 14px; background:var(--panel);
+  cursor:pointer; position:relative; transition:transform .18s, border-color .2s, background .2s, box-shadow .25s;
+  min-height:128px; display:flex; flex-direction:column; gap:7px;
+}
+.stage:hover{ transform:translateY(-4px); border-color:var(--cyan); box-shadow:0 12px 30px -14px var(--cyan-glow); }
+.stage.active{ border-color:var(--cyan); background:var(--panel-2); box-shadow:0 0 0 1px var(--cyan), 0 14px 36px -16px var(--cyan-glow); }
+.stage[data-kind="judgment"]:hover, .stage[data-kind="judgment"].active{ border-color:var(--amber); box-shadow:0 0 0 1px var(--amber), 0 14px 36px -16px var(--amber-glow); }
+.stage .sidx{ font-family:var(--mono); font-size:10px; color:var(--txt-3); letter-spacing:0.1em; }
+.stage .sico{ font-size:19px; line-height:1; }
+.stage .sname{ font-family:var(--mono); font-size:12.5px; font-weight:500; color:var(--txt); letter-spacing:0.01em; }
+.stage .skind{ font-family:var(--mono); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; margin-top:auto; }
+.stage[data-kind="machine"] .skind{ color:var(--cyan); }
+.stage[data-kind="judgment"] .skind{ color:var(--amber); }
+.stage .pin{ position:absolute; top:10px; right:10px; width:7px; height:7px; border-radius:50%; }
+.stage[data-kind="machine"] .pin{ background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+.stage[data-kind="judgment"] .pin{ background:var(--amber); box-shadow:0 0 8px var(--amber); }
+
+/* dim mode when highlighting one kind */
+body.hl-machine .stage[data-kind="judgment"]{ opacity:.32; filter:grayscale(.4); }
+body.hl-judgment .stage[data-kind="machine"]{ opacity:.32; filter:grayscale(.4); }
+
+.loop-note{
+  margin-top:14px; display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:11.5px; color:var(--txt-3);
+  padding:10px 14px; border:1px dashed var(--line); border-radius:10px; background:rgba(240,101,94,0.03);
+}
+.loop-note b{ color:var(--red); font-weight:500; }
+
+/* Stage detail drawer */
+.stage-detail{
+  margin-top:18px; border:1px solid var(--line); border-radius:var(--r); overflow:hidden;
+  background:var(--panel-2); display:none;
+}
+.stage-detail.show{ display:block; animation:fadeIn .35s ease; }
+@keyframes fadeIn{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+.sd-head{ display:flex; align-items:center; gap:14px; padding:18px 22px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+.sd-head .sd-ico{ font-size:24px; }
+.sd-head h3{ font-family:var(--disp); font-weight:500; font-size:23px; }
+.sd-badge{ font-family:var(--mono); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; padding:5px 11px; border-radius:20px; margin-left:auto; }
+.sd-badge.machine{ color:var(--cyan); border:1px solid rgba(69,200,230,0.35); background:rgba(69,200,230,0.06); }
+.sd-badge.judgment{ color:var(--amber); border:1px solid rgba(244,183,64,0.35); background:rgba(244,183,64,0.06); }
+.sd-body{ padding:22px; }
+.sd-body p{ color:var(--txt-2); font-size:15px; margin-bottom:8px; }
+.sd-body .why{ font-size:13.5px; color:var(--txt-3); margin-bottom:16px; }
+.sd-body .why b{ color:var(--txt-2); }
+
+/* ============================ CODE BLOCK ============================ */
+.code{
+  border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#070d18;
+  font-family:var(--mono); position:relative; margin:0;
+}
+.code-head{
+  display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line);
+  background:rgba(255,255,255,0.015); font-size:11px; color:var(--txt-3); letter-spacing:0.04em;
+}
+.code-head .dotrow{ display:flex; gap:6px; }
+.code-head .dotrow i{ width:9px; height:9px; border-radius:50%; display:block; }
+.code-head .dotrow i:nth-child(1){ background:#3a2630; } .code-head .dotrow i:nth-child(2){ background:#2c3326; } .code-head .dotrow i:nth-child(3){ background:#26303a; }
+.code-head .fname{ color:var(--txt-2); }
+.code-head .copy{
+  margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--txt-3); cursor:pointer;
+  border:1px solid var(--line); background:transparent; padding:4px 10px; border-radius:6px; transition:all .2s;
+}
+.code-head .copy:hover{ color:var(--cyan); border-color:var(--cyan); }
+.code-head .copy.done{ color:var(--green); border-color:var(--green); }
+.code pre{ margin:0; padding:18px 20px; overflow-x:auto; font-size:13px; line-height:1.7; }
+.code pre code{ font-family:var(--mono); }
+/* syntax tokens */
+.c{ color:#5a7088; font-style:italic; }   /* comment */
+.k{ color:var(--violet); }                 /* keyword */
+.s{ color:var(--green); }                  /* string */
+.n{ color:var(--amber); }                  /* number */
+.t{ color:var(--cyan); }                   /* tag / type / key */
+.f{ color:#e7eef7; }                       /* function / plain */
+.x{ color:var(--red); }                    /* error / del */
+.g{ color:var(--green); }                  /* added / ok */
+.dim{ color:var(--txt-3); }
+
+/* ============================ USE CASE ============================ */
+.usecase-hero{
+  border:1px solid var(--line); border-radius:var(--r); overflow:hidden;
+  background:linear-gradient(135deg, rgba(17,28,48,0.7), rgba(11,17,32,0.4));
+  margin-top:34px; position:relative;
+}
+.usecase-hero .uc-top{ padding:30px clamp(22px,4vw,40px); border-bottom:1px solid var(--line); }
+.uc-badge{ font-family:var(--mono); font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:var(--amber); display:inline-flex; align-items:center; gap:9px; margin-bottom:16px; }
+.uc-badge::before{ content:"◆"; }
+.usecase-hero h3{ font-family:var(--disp); font-weight:500; font-size:clamp(24px,3.5vw,38px); margin-bottom:12px; line-height:1.1; }
+.usecase-hero h3 em{ color:var(--cyan); font-style:italic; }
+.usecase-hero .uc-desc{ color:var(--txt-2); max-width:70ch; font-size:15.5px; }
+.uc-reqs{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+.uc-req{ padding:20px 24px; border-right:1px solid var(--line); border-top:1px solid var(--line); }
+.uc-req:nth-child(1){ border-top:none; }
+.uc-req .rq-l{ font-family:var(--mono); font-size:10.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--txt-3); margin-bottom:6px; }
+.uc-req .rq-v{ font-size:14px; color:var(--txt); font-weight:500; }
+.uc-req .rq-v small{ display:block; font-weight:300; color:var(--txt-2); font-size:12.5px; margin-top:3px; }
+
+/* Stepper */
+.steps{ margin-top:40px; display:grid; grid-template-columns:240px 1fr; gap:30px; }
+@media(max-width:820px){ .steps{ grid-template-columns:1fr; } }
+.steps-rail{ position:sticky; top:84px; align-self:start; display:flex; flex-direction:column; gap:2px; }
+@media(max-width:820px){ .steps-rail{ position:static; flex-direction:row; overflow-x:auto; padding-bottom:8px; } }
+.step-tab{
+  text-align:left; background:transparent; border:none; cursor:pointer;
+  font-family:var(--mono); font-size:12.5px; color:var(--txt-3); padding:12px 14px; border-left:2px solid var(--line);
+  transition:all .2s; display:flex; gap:11px; align-items:flex-start; white-space:nowrap;
+}
+@media(max-width:820px){ .step-tab{ border-left:none; border-bottom:2px solid var(--line); } }
+.step-tab:hover{ color:var(--txt-2); background:rgba(255,255,255,0.015); }
+.step-tab.active{ color:var(--txt); border-left-color:var(--cyan); background:rgba(69,200,230,0.04); }
+@media(max-width:820px){ .step-tab.active{ border-left-color:var(--line); border-bottom-color:var(--cyan); } }
+.step-tab .st-n{ color:var(--cyan); font-weight:600; flex:none; }
+.step-tab.judgment.active{ border-left-color:var(--amber); background:rgba(244,183,64,0.04); }
+.step-tab.judgment .st-n{ color:var(--amber); }
+.step-tab .st-x{ display:block; font-size:10px; color:var(--txt-3); margin-top:3px; letter-spacing:0.08em; }
+
+.step-panel{ display:none; }
+.step-panel.active{ display:block; animation:fadeIn .4s ease; }
+.step-panel .sp-head{ display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+.step-panel .sp-kind{ font-family:var(--mono); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; padding:4px 10px; border-radius:20px; }
+.step-panel .sp-kind.machine{ color:var(--cyan); border:1px solid rgba(69,200,230,0.3); }
+.step-panel .sp-kind.judgment{ color:var(--amber); border:1px solid rgba(244,183,64,0.3); }
+.step-panel h4{ font-family:var(--disp); font-weight:500; font-size:26px; line-height:1.1; }
+.step-panel .sp-lead{ color:var(--txt-2); font-size:15px; margin-bottom:20px; max-width:68ch; }
+.step-panel .sp-lead code{ font-family:var(--mono); font-size:13px; color:var(--cyan); background:rgba(69,200,230,0.08); padding:2px 6px; border-radius:4px; }
+.step-foot{ margin-top:18px; padding:14px 18px; border:1px solid var(--line); border-left:2px solid var(--amber); border-radius:8px; background:rgba(244,183,64,0.03); font-size:13.5px; color:var(--txt-2); }
+.step-foot b{ color:var(--amber); font-weight:500; }
+.step-foot.machine{ border-left-color:var(--cyan); background:rgba(69,200,230,0.03); }
+.step-foot.machine b{ color:var(--cyan); }
+
+/* findings table */
+.findings{ width:100%; border-collapse:collapse; font-size:13.5px; margin-top:6px; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.findings th{ font-family:var(--mono); font-size:10.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--txt-3); text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); background:rgba(255,255,255,0.015); }
+.findings td{ padding:11px 14px; border-bottom:1px solid var(--line-soft); color:var(--txt-2); vertical-align:top; }
+.findings tr:last-child td{ border-bottom:none; }
+.sev{ font-family:var(--mono); font-size:10px; font-weight:600; padding:3px 9px; border-radius:5px; letter-spacing:0.05em; }
+.sev.crit{ background:rgba(240,101,94,0.14); color:var(--red); }
+.sev.high{ background:rgba(244,183,64,0.14); color:var(--amber); }
+.sev.med{ background:rgba(69,200,230,0.12); color:var(--cyan); }
+.sev.low{ background:rgba(157,140,240,0.12); color:var(--violet); }
+.st-pass{ color:var(--green); font-family:var(--mono); font-size:12px; font-weight:600; }
+.st-na{ color:var(--txt-3); font-family:var(--mono); font-size:12px; }
+.verdict{ margin-top:14px; font-family:var(--mono); font-size:14px; padding:14px 18px; border-radius:10px; background:rgba(111,214,147,0.08); border:1px solid rgba(111,214,147,0.3); color:var(--green); display:flex; align-items:center; gap:10px; }
+
+/* tree */
+.tree{ font-family:var(--mono); font-size:12.5px; line-height:1.85; color:var(--txt-2); }
+.tree .d{ color:var(--cyan); }
+.tree .gen{ color:var(--txt-3); }
+.tree .pol{ color:var(--amber); }
+
+/* ============================ AGENT ARCH ============================ */
+.arch-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:18px; margin-top:44px; }
+@media(max-width:780px){ .arch-grid{ grid-template-columns:1fr; } }
+.arch-card{
+  border:1px solid var(--line); border-radius:var(--r); padding:26px; background:var(--panel);
+  position:relative; overflow:hidden; transition:border-color .25s, transform .2s;
+}
+.arch-card:hover{ transform:translateY(-3px); border-color:var(--line); }
+.arch-card .ac-icon{ font-size:22px; margin-bottom:14px; display:inline-flex; width:46px; height:46px; border-radius:11px; align-items:center; justify-content:center; border:1px solid var(--line); }
+.arch-card .ac-kind{ font-family:var(--mono); font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--txt-3); margin-bottom:7px; }
+.arch-card h4{ font-family:var(--disp); font-weight:500; font-size:22px; margin-bottom:6px; }
+.arch-card h4 .file{ font-family:var(--mono); font-size:12px; color:var(--cyan); display:block; font-weight:400; margin-top:3px; }
+.arch-card p{ font-size:14px; color:var(--txt-2); margin-bottom:14px; }
+.arch-card.enforce{ border-color:rgba(240,101,94,0.25); } .arch-card.enforce .ac-icon{ color:var(--red); border-color:rgba(240,101,94,0.3); }
+.arch-card.skill .ac-icon{ color:var(--cyan); border-color:rgba(69,200,230,0.3); }
+.arch-card.agent .ac-icon{ color:var(--amber); border-color:rgba(244,183,64,0.3); }
+.arch-card.ctx .ac-icon{ color:var(--violet); border-color:rgba(157,140,240,0.3); }
+
+/* ============================ PITFALLS ============================ */
+.pit-filter{ display:flex; gap:8px; flex-wrap:wrap; margin:30px 0 26px; }
+.fbtn{
+  font-family:var(--mono); font-size:11.5px; letter-spacing:0.04em; padding:8px 15px; border-radius:20px;
+  border:1px solid var(--line); background:transparent; color:var(--txt-3); cursor:pointer; transition:all .2s;
+}
+.fbtn:hover{ color:var(--txt); border-color:var(--txt-3); }
+.fbtn.active{ background:var(--cyan); color:var(--ink); border-color:var(--cyan); font-weight:600; }
+.pit-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:14px; }
+.pit{
+  border:1px solid var(--line); border-radius:12px; padding:20px; background:var(--panel);
+  transition:transform .2s, border-color .2s, opacity .3s; position:relative;
+}
+.pit:hover{ transform:translateY(-3px); border-color:var(--red); }
+.pit.hide{ display:none; }
+.pit .pit-h{ display:flex; align-items:flex-start; gap:12px; margin-bottom:12px; }
+.pit .pit-n{ font-family:var(--mono); font-size:11px; color:var(--red); border:1px solid rgba(240,101,94,0.3); padding:3px 8px; border-radius:6px; flex:none; }
+.pit h5{ font-size:15px; font-weight:600; color:var(--txt); line-height:1.3; }
+.pit .pit-cat{ font-family:var(--mono); font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--txt-3); margin-bottom:10px; }
+.pit .pit-why{ font-size:13px; color:var(--txt-2); margin-bottom:14px; }
+.pit .pit-fix{ font-size:13px; color:var(--txt-2); padding-top:12px; border-top:1px dashed var(--line); }
+.pit .pit-fix b{ color:var(--green); font-weight:500; }
+
+/* ============================ CHECKLIST ============================ */
+.checklist{ margin-top:38px; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--panel); }
+.cl-head{ display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:1px solid var(--line); flex-wrap:wrap; gap:12px; }
+.cl-head .cl-prog{ font-family:var(--mono); font-size:12px; color:var(--txt-3); display:flex; align-items:center; gap:12px; }
+.cl-bar{ width:140px; height:6px; border-radius:10px; background:#1a2740; overflow:hidden; }
+.cl-bar i{ display:block; height:100%; width:0; background:linear-gradient(90deg,var(--cyan),var(--green)); transition:width .4s; }
+.cl-reset{ font-family:var(--mono); font-size:11px; color:var(--txt-3); background:none; border:1px solid var(--line); padding:5px 12px; border-radius:6px; cursor:pointer; }
+.cl-reset:hover{ color:var(--red); border-color:var(--red); }
+.cl-item{ display:flex; gap:14px; align-items:flex-start; padding:15px 24px; border-bottom:1px solid var(--line-soft); cursor:pointer; transition:background .15s; }
+.cl-item:last-child{ border-bottom:none; }
+.cl-item:hover{ background:rgba(255,255,255,0.015); }
+.cl-box{ width:20px; height:20px; border:1.5px solid var(--txt-3); border-radius:5px; flex:none; margin-top:2px; display:grid; place-items:center; transition:all .2s; }
+.cl-box svg{ width:12px; height:12px; opacity:0; transform:scale(.5); transition:all .2s; }
+.cl-item.done .cl-box{ background:var(--green); border-color:var(--green); }
+.cl-item.done .cl-box svg{ opacity:1; transform:scale(1); }
+.cl-item.done .cl-txt{ color:var(--txt-3); text-decoration:line-through; text-decoration-color:rgba(108,125,150,0.5); }
+.cl-txt{ font-size:14.5px; color:var(--txt); transition:color .2s; }
+
+/* ============================ COMMAND CHEATSHEET ============================ */
+.cheat{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin-top:38px; }
+.cmd{ border:1px solid var(--line); border-radius:12px; padding:18px 20px; background:#070d18; transition:border-color .2s; }
+.cmd:hover{ border-color:var(--cyan); }
+.cmd .cmd-l{ font-family:var(--mono); font-size:10.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--txt-3); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+.cmd .cmd-l::before{ content:"$"; color:var(--cyan); }
+.cmd pre{ font-family:var(--mono); font-size:12px; color:var(--txt); overflow-x:auto; line-height:1.6; }
+.cmd pre .fl{ color:var(--amber); } .cmd pre .pp{ color:var(--cyan); }
+
+/* ============================ STARTER KIT ============================ */
+.kit-actions{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:34px; margin-bottom:22px; }
+.kit-note{ font-family:var(--mono); font-size:12px; color:var(--txt-3); }
+.kit-note b{ color:var(--green); font-weight:500; }
+.explorer{ display:grid; grid-template-columns:268px 1fr; gap:0; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; background:var(--panel); }
+@media(max-width:780px){ .explorer{ grid-template-columns:1fr; } }
+.ex-tree{ background:#080d18; border-right:1px solid var(--line); padding:14px 0; max-height:560px; overflow-y:auto; }
+@media(max-width:780px){ .ex-tree{ border-right:none; border-bottom:1px solid var(--line); max-height:230px; } }
+.ex-group{ font-family:var(--mono); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--txt-3); padding:14px 18px 7px; }
+.ex-group:first-child{ padding-top:4px; }
+.ex-file{
+  display:flex; align-items:center; gap:9px; padding:8px 18px; cursor:pointer;
+  font-family:var(--mono); font-size:12.5px; color:var(--txt-2); border-left:2px solid transparent; transition:all .15s;
+}
+.ex-file:hover{ background:rgba(255,255,255,0.02); color:var(--txt); }
+.ex-file.active{ background:rgba(69,200,230,0.06); color:var(--cyan); border-left-color:var(--cyan); }
+.ex-file .fi{ flex:none; opacity:.6; font-size:11px; }
+.ex-file.active .fi{ opacity:1; }
+.ex-view{ display:flex; flex-direction:column; min-width:0; }
+.ex-bar{ display:flex; align-items:center; gap:12px; padding:13px 18px; border-bottom:1px solid var(--line); background:rgba(255,255,255,0.012); flex-wrap:wrap; }
+.ex-path{ font-family:var(--mono); font-size:12.5px; color:var(--txt); }
+.ex-path .dir{ color:var(--txt-3); }
+.ex-lang{ font-family:var(--mono); font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--cyan); border:1px solid rgba(69,200,230,0.3); padding:3px 8px; border-radius:5px; }
+.ex-btns{ margin-left:auto; display:flex; gap:8px; }
+.ex-btns button{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.04em; color:var(--txt-3);
+  border:1px solid var(--line); background:transparent; padding:6px 12px; border-radius:6px; cursor:pointer; transition:all .2s;
+}
+.ex-btns button:hover{ color:var(--cyan); border-color:var(--cyan); }
+.ex-btns button.done{ color:var(--green); border-color:var(--green); }
+.ex-code{ margin:0; overflow:auto; max-height:560px; }
+.ex-code pre{ margin:0; padding:18px 20px; font-family:var(--mono); font-size:12.5px; line-height:1.72; color:var(--txt); min-width:max-content; }
+.ex-desc{ padding:13px 18px; border-bottom:1px solid var(--line-soft); font-size:13px; color:var(--txt-2); background:rgba(244,183,64,0.025); }
+.ex-desc b{ color:var(--amber); font-weight:500; }
+
+.bootstrap-box{ margin-top:18px; }
+
+/* ============================ FOOTER ============================ */
+footer{ border-top:1px solid var(--line); padding:60px clamp(16px,4vw,40px) 50px; position:relative; }
+.foot-grid{ max-width:var(--maxw); margin:0 auto; display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:40px; }
+@media(max-width:760px){ .foot-grid{ grid-template-columns:1fr; gap:30px; } }
+.foot-brand{ font-family:var(--disp); font-size:24px; font-weight:500; margin-bottom:12px; }
+.foot-brand em{ color:var(--cyan); font-style:italic; }
+footer p{ font-size:13.5px; color:var(--txt-3); max-width:42ch; }
+.foot-col h5{ font-family:var(--mono); font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--txt-3); margin-bottom:14px; }
+.foot-col a, .foot-col span{ display:block; font-size:13.5px; color:var(--txt-2); text-decoration:none; margin-bottom:9px; font-family:var(--mono); }
+.foot-col a:hover{ color:var(--cyan); }
+.foot-bottom{ max-width:var(--maxw); margin:40px auto 0; padding-top:24px; border-top:1px solid var(--line-soft); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; font-family:var(--mono); font-size:11px; color:var(--txt-3); letter-spacing:0.04em; }
+
+/* reveal animation */
+.rv{ opacity:0; transform:translateY(26px); transition:opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
+.rv.in{ opacity:1; transform:none; }
+.rv.d1{ transition-delay:.08s; } .rv.d2{ transition-delay:.16s; } .rv.d3{ transition-delay:.24s; } .rv.d4{ transition-delay:.32s; }
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation:none !important; transition:none !important; }
+  .rv{ opacity:1; transform:none; }
+}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+<div class="bg-grain"></div>
+
+<!-- ============================ NAV ============================ -->
+<nav id="nav">
+  <a class="brand" href="#top" style="text-decoration:none;color:inherit">
+    <span class="mark">◇</span>
+    <span><b>SPEC&#8202;//&#8202;DRIVEN</b> <span>· apigee&nbsp;x</span></span>
+  </a>
+  <div class="nav-links">
+    <a href="#concept">Concept</a>
+    <a href="#pipeline">Pipeline</a>
+    <a href="#usecase">Use Case</a>
+    <a href="#agent">Claude Setup</a>
+    <a href="#pitfalls">Pitfalls</a>
+    <a href="#kit">Starter Kit</a>
+  </div>
+</nav>
+
+<!-- ============================ HERO ============================ -->
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-tag rv">
+      <span class="dot"></span>
+      <span>CONTRACT-FIRST API PROXIES</span>
+      <span style="color:var(--cyan)">//</span>
+      <span>OPENAPI → APIGEE X → CLAUDE CODE</span>
+    </div>
+    <h1 class="rv d1">
+      <span class="ln">The <i class="c1">spec</i> is the</span>
+      <span class="ln"><span class="frame">single source</span></span>
+      <span class="ln">of <i class="c2">truth.</i></span>
+    </h1>
+    <p class="hero-sub rv d2">
+      Everything downstream — the proxy bundle, its policies, the tests, the docs — is
+      <b>generated from the contract or validated against it.</b> When the proxy and the
+      spec disagree, the spec wins and the proxy is regenerated. This is how you build
+      Apigee X proxies that never drift.
+    </p>
+    <div class="hero-cta rv d3">
+      <a class="btn btn-primary" href="#pipeline">Trace the pipeline <span class="arr">↗</span></a>
+      <a class="btn btn-ghost" href="#usecase">See a real bank API <span class="arr">↗</span></a>
+    </div>
+
+    <div class="equation rv d4">
+      <div class="eq-tok src"><span class="k">specs/accounts.yaml</span><span class="v">OPENAPI 3.x · SOURCE</span></div>
+      <span class="eq-op">→</span>
+      <div class="eq-tok"><span class="k">spectral</span><span class="v">GOVERNANCE GATE</span></div>
+      <span class="eq-op">→</span>
+      <div class="eq-tok"><span class="k">apigee-go-gen</span><span class="v">DETERMINISTIC RENDER</span></div>
+      <span class="eq-op">→</span>
+      <div class="eq-tok out"><span class="k">apiproxies/accounts</span><span class="v">BUILD OUTPUT</span></div>
+    </div>
+  </div>
+  <div class="scroll-hint">
+    <span>SCROLL</span>
+    <span class="bar"></span>
+  </div>
+</section>
+
+<!-- ============================ CONCEPT ============================ -->
+<section id="concept">
+  <div class="wrap">
+    <span class="fig rv"><span class="n">FIG.01</span> / THE CORE IDEA</span>
+    <h2 class="title rv">Separate <em>deterministic generation</em> from <span class="am">judgment.</span></h2>
+    <p class="lead rv d1">
+      Templates and codegen produce the skeleton — reproducible, reviewable, diffable. The
+      agent supplies the decisions a template <b>can't</b> make: which policies, what test
+      scenarios, the security posture. Knowing which is which is the whole discipline — so
+      this entire page colour-codes it.
+    </p>
+
+    <div class="legend">
+      <div class="legend-card cool rv d1">
+        <span class="edge"></span>
+        <div class="glyph" style="color:var(--cyan)">◇</div>
+        <h4>Deterministic · Machine</h4>
+        <p>Reproducible across runs. Two runs of the same spec produce byte-identical bundles, so diffs are meaningful and reviews aren't theatre.</p>
+        <div class="tags">
+          <span class="tag">spectral lint</span><span class="tag">apigee-go-gen render</span><span class="tag">re-render + diff</span><span class="tag">maven deploy</span>
+        </div>
+      </div>
+      <div class="legend-card warm rv d2">
+        <span class="edge"></span>
+        <div class="glyph" style="color:var(--amber)">◆</div>
+        <h4>Judgment · Human + Agent</h4>
+        <p>The decisions a template cannot encode. Expressed through the spec or template so they're <em>still</em> reproducible — never as a one-off hand-edit to the bundle.</p>
+        <div class="tags">
+          <span class="tag">policy posture</span><span class="tag">test scenarios</span><span class="tag">security review</span><span class="tag">promotion approval</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="principles">
+      <div class="principle rv"><span class="num">01</span><h4>Contract is law</h4><p>Every downstream artifact is generated from the spec or validated against it.</p></div>
+      <div class="principle rv d1"><span class="num">02</span><h4>Codegen ≠ judgment</h4><p>Deterministic skeleton from templates; the agent decides only what a template can't.</p></div>
+      <div class="principle rv d2"><span class="num">03</span><h4>Close the loop</h4><p>apickli against a mock or TEST gives real pass/fail, so the agent self-corrects on facts.</p></div>
+      <div class="principle rv d3"><span class="num">04</span><h4>All in git</h4><p>Specs, templates, config, tests, agent config — versioned. Bundles are build output.</p></div>
+      <div class="principle rv d4"><span class="num">05</span><h4>Humans gate</h4><p>The agent scaffolds, tests, proposes. People approve every deploy beyond TEST.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ PIPELINE ============================ -->
+<section id="pipeline">
+  <div class="wrap">
+    <span class="fig rv"><span class="n">FIG.02</span> / THE INNER LOOP</span>
+    <h2 class="title rv">Eight stages. <em>Tap one</em> to open it.</h2>
+    <p class="lead rv d1">
+      This is the loop the agent runs every time. Keep it fast — iterate against the local
+      generated mock; reserve TEST deploys for integration. Cyan stages are machine-run and
+      reproducible; amber stages need a decision.
+    </p>
+
+    <div class="pipe-wrap rv d1">
+      <div class="pipe-controls">
+        <div class="toggle" id="tg-machine" data-kind="machine"><span class="sw"></span><span>Spotlight&nbsp;◇&nbsp;deterministic</span></div>
+        <div class="toggle" id="tg-judgment" data-kind="judgment"><span class="sw"></span><span>Spotlight&nbsp;◆&nbsp;judgment</span></div>
+      </div>
+
+      <div class="pipeline" id="pipeline"><!-- stages injected by JS --></div>
+
+      <div class="loop-note">
+        <span>↺</span>
+        <span>The loop closes here: a failed validation routes back to the <b>spec or template</b> — never a patch to the generated bundle. Any drift diff is treated as a defect.</span>
+      </div>
+
+      <div class="stage-detail" id="stage-detail"><!-- detail injected by JS --></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ USE CASE ============================ -->
+<section id="usecase">
+  <div class="wrap">
+    <span class="fig amber rv"><span class="n">FIG.03</span> / REAL-WORLD WALKTHROUGH</span>
+    <h2 class="title rv">From regulation to a deployed proxy — <span class="am">one contract.</span></h2>
+    <p class="lead rv d1">
+      A worked example, the way it actually runs. Follow the same eight stages against a real
+      regulatory API and watch the contract drive every artifact.
+    </p>
+
+    <div class="usecase-hero rv d1">
+      <div class="uc-top">
+        <span class="uc-badge">Scenario</span>
+        <h3><em>Meridian Bank</em> must expose Open Banking accounts to certified fintechs.</h3>
+        <p class="uc-desc">
+          Under PSD2-style open-banking rules, Meridian Bank must let certified third-party
+          providers (TPPs) read a customer's consented account, balance, and transaction data
+          — securely, rate-limited per partner, fully audited, with no customer PII leaking
+          through error responses. It is a brand-new API with a hard compliance deadline. The
+          team goes contract-first: write the OpenAPI spec, let the pipeline render and prove
+          the proxy.
+        </p>
+      </div>
+      <div class="uc-reqs">
+        <div class="uc-req"><div class="rq-l">Auth</div><div class="rq-v">OAuth2 + scopes<small>authorization_code, accounts:read</small></div></div>
+        <div class="uc-req"><div class="rq-l">Throughput</div><div class="rq-v">Per-TPP quota<small>1,000 req / min / app</small></div></div>
+        <div class="uc-req"><div class="rq-l">Transport</div><div class="rq-v">mTLS to core<small>SSLInfo, no plaintext</small></div></div>
+        <div class="uc-req"><div class="rq-l">Safety</div><div class="rq-v">Threat + sanitized faults<small>JSON guard, no PII in errors</small></div></div>
+      </div>
+    </div>
+
+    <!-- STEPPER -->
+    <div class="steps rv d1">
+      <div class="steps-rail" id="steps-rail"><!-- tabs injected --></div>
+      <div class="steps-body" id="steps-body"><!-- panels injected --></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ AGENT ARCH ============================ -->
+<section id="agent">
+  <div class="wrap">
+    <span class="fig rv"><span class="n">FIG.04</span> / THE CLAUDE CODE SETUP</span>
+    <h2 class="title rv">The harness that makes this <em>hold up</em> in production.</h2>
+    <p class="lead rv d1">
+      The discipline isn't enforced by good intentions — it's enforced by configuration.
+      One always-true context file, one skill that owns the pipeline, two read-only
+      subagents for a clean second opinion, and hooks that <b>enforce without thinking.</b>
+    </p>
+
+    <div class="arch-grid">
+      <div class="arch-card ctx rv d1">
+        <div class="ac-icon">▤</div>
+        <div class="ac-kind">Always-true context</div>
+        <h4>CLAUDE.md <span class="file">the golden rule</span></h4>
+        <p>Short and always-true: verified commands, conventions, and the rule that prevents the #1 failure mode. If a line wouldn't cause a mistake when removed, it's cut — long files get ignored.</p>
+        <div class="code">
+          <div class="code-head"><div class="dotrow"><i></i><i></i><i></i></div><span class="fname">CLAUDE.md — the golden rule</span></div>
+          <pre><code><span class="c"># The golden rule (do not violate)</span>
+<span class="t">1.</span> Never hand-edit a generated bundle under <span class="s">apiproxies/</span>.
+   To change a proxy, change the <span class="n">spec</span> or the <span class="n">template</span>
+   and re-render. A hook blocks manual edits.
+<span class="t">2.</span> Never put secrets in specs, bundles, or git.
+<span class="t">3.</span> Generation is deterministic; you supply judgment.</code></pre>
+        </div>
+      </div>
+
+      <div class="arch-card skill rv d2">
+        <div class="ac-icon">⛭</div>
+        <div class="ac-kind">One skill owns the pipeline</div>
+        <h4>scaffold-proxy <span class="file">.claude/skills/</span></h4>
+        <p>So the workflow runs identically every time instead of being re-prompted. Lint → render → policies → tests → validate → drift, stopping and reporting on any failure. It hands off to the reviewer before declaring done.</p>
+        <div class="code">
+          <div class="code-head"><div class="dotrow"><i></i><i></i><i></i></div><span class="fname">SKILL.md — scaffold-proxy</span></div>
+          <pre><code><span class="t">1.</span> Lint the spec first <span class="dim">— invalid contract never generates</span>
+<span class="t">2.</span> Render bundle deterministically <span class="dim">— shared template</span>
+<span class="t">3.</span> Layer judgment policies <span class="dim">— via template / x-</span>
+<span class="t">4.</span> Generate apickli tests <span class="dim">— per operation</span>
+<span class="t">5.</span> Validate on mock / TEST <span class="dim">— self-correct in spec</span>
+<span class="t">6.</span> Drift check <span class="dim">— re-render + diff</span>
+<span class="g">→ hand to policy-reviewer · do NOT deploy</span></code></pre>
+        </div>
+      </div>
+
+      <div class="arch-card agent rv d1">
+        <div class="ac-icon">◎</div>
+        <div class="ac-kind">Read-only subagents</div>
+        <h4>proxy-explorer + policy-reviewer</h4>
+        <p>Subagents keep the main context clean and add a second opinion. A cheap <b>haiku</b> explorer maps the spec in plan mode; a judgment-grade <b>sonnet</b> reviewer audits security before deploy. Both get only <code style="font-family:var(--mono);color:var(--cyan)">Read, Grep, Glob</code>.</p>
+        <div class="code">
+          <div class="code-head"><div class="dotrow"><i></i><i></i><i></i></div><span class="fname">two read-only agents</span></div>
+          <pre><code><span class="t">proxy-explorer</span>   <span class="dim">model:</span> haiku   <span class="dim">plan-mode map</span>
+  reads spec + template, returns a tight plan
+<span class="t">policy-reviewer</span>  <span class="dim">model:</span> sonnet  <span class="dim">pre-deploy audit</span>
+  findings by severity → SAFE / NEEDS FIXES
+<span class="dim">tools: Read, Grep, Glob   (no write, ever)</span></code></pre>
+        </div>
+      </div>
+
+      <div class="arch-card enforce rv d2">
+        <div class="ac-icon">⊘</div>
+        <div class="ac-kind">Hooks enforce, they don't think</div>
+        <h4>guard-generated + deploy-gate <span class="file">PreToolUse hooks</span></h4>
+        <p>Block manual bundle edits at <b>write time</b> — a category error worth stopping instantly. Run the heavier governance gate at <b>deploy time</b> so you don't break the agent's reasoning mid-edit. Exit&nbsp;2 blocks the call and feeds the reason back to Claude.</p>
+        <div class="code">
+          <div class="code-head"><div class="dotrow"><i></i><i></i><i></i></div><span class="fname">guard-generated.sh</span></div>
+          <pre><code><span class="c"># PreToolUse · Edit|Write|MultiEdit</span>
+<span class="k">case</span> <span class="s">"$path"</span> <span class="k">in</span>
+  <span class="s">*/apiproxies/*</span>)
+    <span class="f">echo</span> <span class="x">"BLOCKED: generated bundle."</span> &gt;&amp;2
+    <span class="f">echo</span> <span class="dim">"Change the spec or template."</span> &gt;&amp;2
+    <span class="k">exit</span> <span class="x">2</span> <span class="c"># block + tell Claude why</span>
+<span class="k">esac</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ PITFALLS ============================ -->
+<section id="pitfalls">
+  <div class="wrap">
+    <span class="fig rv" style="color:var(--red)"><span class="n">FIG.05</span> / FAILURE MODES</span>
+    <h2 class="title rv">The mistakes that bite — and the <em>guardrail</em> for each.</h2>
+    <p class="lead rv d1">
+      Every one of these is something that looks fine in a demo and breaks in production.
+      Filter by category. Each card names why it bites and the single prevention that
+      neutralizes it.
+    </p>
+
+    <div class="pit-filter rv d1" id="pit-filter">
+      <button class="fbtn active" data-cat="all">All</button>
+      <button class="fbtn" data-cat="drift">Drift &amp; determinism</button>
+      <button class="fbtn" data-cat="security">Security</button>
+      <button class="fbtn" data-cat="testing">Testing</button>
+      <button class="fbtn" data-cat="ops">Ops &amp; agent</button>
+    </div>
+
+    <div class="pit-grid" id="pit-grid"><!-- injected --></div>
+  </div>
+</section>
+
+<!-- ============================ CHECKLIST ============================ -->
+<section id="checklist">
+  <div class="wrap-narrow">
+    <span class="fig rv"><span class="n">FIG.06</span> / SHIP IT</span>
+    <h2 class="title rv">Production-readiness <em>checklist.</em></h2>
+    <p class="lead rv d1">Your progress is saved in this browser. Don't call a proxy done until every box is ticked.</p>
+
+    <div class="checklist rv d1">
+      <div class="cl-head">
+        <div class="cl-prog"><span id="cl-count">0 / 10</span><span class="cl-bar"><i id="cl-fill"></i></span></div>
+        <button class="cl-reset" id="cl-reset">Reset</button>
+      </div>
+      <div id="cl-list"><!-- injected --></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ CHEATSHEET ============================ -->
+<section id="commands">
+  <div class="wrap">
+    <span class="fig rv"><span class="n">FIG.07</span> / VERIFIED COMMANDS</span>
+    <h2 class="title rv">Pin these. <em>Verify with</em> <span style="font-family:var(--mono);font-size:0.6em;color:var(--amber)">--help</span> before trusting.</h2>
+    <p class="lead rv d1">The pinned command block is the source of truth. CI runs the exact same commands as the agent loop, so tool/flag drift fails loudly instead of silently.</p>
+
+    <div class="cheat rv d1" id="cheat"><!-- injected --></div>
+  </div>
+</section>
+
+<!-- ============================ STARTER KIT ============================ -->
+<section id="kit">
+  <div class="wrap">
+    <span class="fig amber rv"><span class="n">FIG.08</span> / STARTER KIT — NOT A DEMO</span>
+    <h2 class="title rv">Copy the <em>whole repo.</em> Real files, ready to run.</h2>
+    <p class="lead rv d1">
+      Everything below is a complete, working file — the contract, the governance ruleset, the
+      apigee-go-gen template that holds the org baseline, the apickli suite, the Maven env
+      config, and the entire <code style="font-family:var(--mono);color:var(--cyan)">.claude/</code>
+      harness. Copy a file, download it, or grab the <b>one-shot bootstrap script</b> that writes
+      the full directory tree in your terminal.
+    </p>
+
+    <div class="kit-actions rv d1">
+      <button class="btn btn-primary" id="boot-copy">⬇ Copy bootstrap.sh <span class="arr">↗</span></button>
+      <button class="btn btn-ghost" id="boot-show">View bootstrap script</button>
+      <span class="kit-note">paste in an empty dir → <b>scaffolds the entire spec-driven repo</b></span>
+    </div>
+
+    <div class="code bootstrap-box rv d1" id="boot-box" style="display:none">
+      <div class="code-head"><div class="dotrow"><i></i><i></i><i></i></div><span class="fname">bootstrap.sh — writes every file below</span><button class="copy" id="boot-copy2">COPY</button></div>
+      <pre><code id="boot-code"></code></pre>
+    </div>
+
+    <div class="explorer rv d1">
+      <div class="ex-tree" id="ex-tree"><!-- injected --></div>
+      <div class="ex-view">
+        <div class="ex-bar">
+          <span class="ex-path" id="ex-path"></span>
+          <span class="ex-lang" id="ex-lang"></span>
+          <span class="ex-btns">
+            <button id="ex-copy">COPY</button>
+            <button id="ex-dl">DOWNLOAD</button>
+          </span>
+        </div>
+        <div class="ex-desc" id="ex-desc"></div>
+        <div class="ex-code"><pre><code id="ex-code"></code></pre></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FOOTER ============================ -->
+<footer>
+  <div class="foot-grid">
+    <div>
+      <div class="foot-brand">Spec&#8202;<em>//</em>&#8202;Driven Apigee&nbsp;X</div>
+      <p>Contract-first API proxies, built and proven by an agent that knows the difference between deterministic generation and judgment. The spec is the single source of truth — everything else is derived.</p>
+    </div>
+    <div class="foot-col">
+      <h5>The Stack</h5>
+      <span>OpenAPI 3.x</span>
+      <span>apigee-go-gen</span>
+      <span>apigeecli</span>
+      <span>Spectral</span>
+      <span>apickli (Gherkin)</span>
+      <span>Apigee Maven plugin</span>
+    </div>
+    <div class="foot-col">
+      <h5>Repo Layout</h5>
+      <span style="color:var(--cyan)">specs/ <span class="dim">· source of truth</span></span>
+      <span>templates/ <span class="dim">· conventions</span></span>
+      <span style="color:var(--txt-3)">apiproxies/ · generated</span>
+      <span>tests/ · apickli</span>
+      <span>config/ · per env</span>
+      <span>.claude/ · agent</span>
+    </div>
+  </div>
+  <div class="foot-bottom">
+    <span>BUILT WITH CLAUDE CODE · CONTRACT-FIRST DISCIPLINE</span>
+    <span>◇ DETERMINISTIC &nbsp;·&nbsp; ◆ JUDGMENT</span>
+  </div>
+</footer>
+
+<!-- ============================================================
+     RAW STARTER-KIT FILES — verbatim, copy-perfect (text/plain)
+     ============================================================ -->
+<script type="text/plain" id="file-spec">openapi: 3.0.3
+info:
+  title: Meridian Open Banking — Accounts API
+  description: >-
+    PSD2-aligned account information for certified third-party providers (TPPs).
+    The proxy name derives from this title; the base path from x-base-path.
+  version: 1.2.0
+  contact:
+    name: Meridian API Platform
+    email: api-platform@meridianbank.example
+servers:
+  - url: https://api.meridianbank.example/open-banking/v1
+    description: Production gateway (backend host is resolved from KVM at deploy time)
+x-base-path: /open-banking/v1
+# The backend host is NOT inlined. It is resolved at runtime from this KVM,
+# referenced by the generated TargetEndpoint. See templates/proxy.yaml.
+x-target-kvm: meridian-core-banking
+security:
+  - openBankingOAuth: [accounts:read]   # default auth applied to every operation
+tags:
+  - name: accounts
+    description: Account, balance and transaction information
+paths:
+  /accounts:
+    get:
+      operationId: listAccounts
+      tags: [accounts]
+      summary: List the customer's consented accounts
+      x-quota: { allow: 1000, interval: 1, timeUnit: minute }   # per-TPP rate posture
+      responses:
+        '200':
+          description: The list of consented accounts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /accounts/{accountId}/balances:
+    get:
+      operationId: getBalances
+      tags: [accounts]
+      summary: Get balances for a single account
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema: { type: string }
+          description: Opaque account identifier
+      x-quota: { allow: 1000, interval: 1, timeUnit: minute }
+      responses:
+        '200':
+          description: Balances for the account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BalanceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /accounts/{accountId}/transactions:
+    get:
+      operationId: listTransactions
+      tags: [accounts]
+      summary: List transactions for a single account
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: fromBookingDateTime
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+      x-quota: { allow: 1000, interval: 1, timeUnit: minute }
+      responses:
+        '200':
+          description: A page of transactions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransactionList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+components:
+  securitySchemes:
+    openBankingOAuth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.meridianbank.example/authorize
+          tokenUrl: https://auth.meridianbank.example/token
+          scopes:
+            accounts:read: Read account, balance and transaction information
+  responses:
+    Unauthorized:
+      description: Missing or invalid access token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: The account does not exist or is not consented
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Per-TPP quota exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Sanitized internal error (never leaks upstream internals)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    AccountList:
+      type: object
+      required: [accounts]
+      properties:
+        accounts:
+          type: array
+          items: { $ref: '#/components/schemas/Account' }
+    Account:
+      type: object
+      required: [accountId, currency, accountType]
+      properties:
+        accountId:   { type: string, example: 'acc-7d2f-redacted' }
+        currency:    { type: string, example: GBP }
+        accountType: { type: string, enum: [PERSONAL, BUSINESS] }
+        nickname:    { type: string }
+    BalanceList:
+      type: object
+      properties:
+        balances:
+          type: array
+          items:
+            type: object
+            properties:
+              type:     { type: string, enum: [AVAILABLE, CLEARED] }
+              amount:   { type: string, example: '1042.66' }
+              currency: { type: string, example: GBP }
+    TransactionList:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items:
+            type: object
+            properties:
+              transactionId:   { type: string }
+              bookingDateTime: { type: string, format: date-time }
+              amount:          { type: string }
+              currency:        { type: string }
+              creditDebit:     { type: string, enum: [CREDIT, DEBIT] }
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:    { type: string, example: '401' }
+        message: { type: string, example: 'Access token is missing or invalid' }
+      # No stackTrace, no upstream detail — faults are sanitized by policy.
+</script>
+
+<script type="text/plain" id="file-spectral"># Meridian org OpenAPI governance ruleset — the FIRST gate in the pipeline.
+# Run:  npx spectral lint specs/<name>.yaml --ruleset .spectral.yaml
+extends:
+  - spectral:oas        # base OpenAPI 3.x correctness rules
+rules:
+  # --- contract completeness -------------------------------------------------
+  operation-must-have-security:
+    description: Every operation must declare an OAuth2/security requirement.
+    severity: error
+    given: $.paths[*][get,post,put,patch,delete]
+    then: { field: security, function: truthy }
+
+  operation-must-be-tagged:
+    description: Operations must be tagged for the developer portal.
+    severity: warn
+    given: $.paths[*][get,post,put,patch,delete]
+    then: { field: tags, function: truthy }
+
+  operationId-required:
+    description: operationId drives the generated conditional-flow name.
+    severity: error
+    given: $.paths[*][get,post,put,patch,delete]
+    then: { field: operationId, function: truthy }
+
+  error-responses-defined:
+    description: 401 and 429 responses are mandatory for governed APIs.
+    severity: error
+    given: $.paths[*][get,post,put,patch,delete].responses
+    then:
+      - { field: '401', function: truthy }
+      - { field: '429', function: truthy }
+
+  # --- security guardrails ---------------------------------------------------
+  no-inline-host:
+    description: Backend hosts must come from a KVM, never an x-target-host in the spec.
+    message: '{{property}} looks like an inline backend host — reference a KVM instead.'
+    severity: error
+    given: $..[?(@property === 'x-target-host')]
+    then: { function: falsy }
+
+  no-literal-secrets:
+    description: No client secrets, API keys, or bearer tokens inlined anywhere.
+    severity: error
+    given: $..*
+    then:
+      function: pattern
+      functionOptions:
+        notMatch: '(?i)(client_secret|api[_-]?key|password|bearer\s+[a-z0-9._-]{20,})'
+
+  https-servers-only:
+    description: All declared servers must use HTTPS.
+    severity: error
+    given: $.servers[*].url
+    then:
+      function: pattern
+      functionOptions:
+        match: '^https://'
+</script>
+
+<script type="text/plain" id="file-template"># templates/proxy.yaml — apigee-go-gen "render apiproxy" template.
+# The shared org security/resilience baseline lives HERE, so every API inherits it.
+# Treat this file as code: review changes harder than you review a proxy.
+#
+#   apigee-go-gen render apiproxy \
+#     --template templates/proxy.yaml \
+#     --set-oas spec=specs/<name>.yaml \
+#     --output apiproxies/<name>
+#
+# NOTE: confirm the exact template funcs against your installed apigee-go-gen
+# version ( apigee-go-gen render apiproxy --help ) and pin that version in CI.
+
+{{- $oas  := .spec -}}
+{{- $name := $oas.info.title | slugify -}}
+{{- $base := index $oas "x-base-path" -}}
+{{- $kvm  := index $oas "x-target-kvm" -}}
+
+apiVersion: "1"
+kind: APIProxy
+name: {{ $name }}
+basepath: {{ $base }}
+
+# ---- Inbound proxy endpoint -------------------------------------------------
+proxyEndpoints:
+  - name: default
+    preFlow:
+      request:
+        - VerifyOAuthToken          # OAuth2 — scopes from spec security
+        - SpikeArrest               # burst protection (org default 50ps)
+        - Quota-PerApp              # per-TPP quota (x-quota), keyed on client_id
+        - JSON-Threat-Protect       # structural threat protection
+    # one conditional flow per operation in the spec
+    flows:
+      {{- range $path, $ops := $oas.paths }}
+      {{- range $verb, $op := $ops }}
+      - name: {{ $op.operationId }}
+        condition: '(proxy.pathsuffix MatchesPath "{{ $path | apigeePath }}") and (request.verb = "{{ $verb | upper }}")'
+      {{- end }}
+      {{- end }}
+    routeRules:
+      - name: default
+        targetEndpoint: default
+
+# ---- Outbound target endpoint (TLS + KVM host) ------------------------------
+targetEndpoints:
+  - name: default
+    httpTargetConnection:
+      # backend host resolved from KVM at runtime — never inlined
+      url: "https://{kvm.{{ $kvm }}.host}{{ $base }}"
+      sslInfo:
+        enabled: true
+        enforce: true
+        clientAuthEnabled: true
+        keyStore: "ref://meridian-mtls-keystore"
+        keyAlias: "meridian-client"
+    faultRules:
+      - FaultRule-Sanitize
+
+# ---- Policy baseline (rendered into apiproxy/policies/*.xml) -----------------
+policies:
+  - name: VerifyOAuthToken
+    OAuthV2:
+      Operation: VerifyAccessToken
+      {{- with (first (first $oas.security)) }}
+      Scope: {{ index . 0 }}
+      {{- end }}
+
+  - name: SpikeArrest
+    SpikeArrest:
+      Rate: 50ps
+
+  - name: Quota-PerApp
+    Quota:
+      type: calendar
+      Identifier: { ref: client_id }       # per-TPP, not global
+      {{- $q := index (first (values $oas.paths)).get "x-quota" }}
+      Allow:    { count: {{ $q.allow }} }
+      Interval: {{ $q.interval }}
+      TimeUnit: {{ $q.timeUnit }}
+
+  - name: JSON-Threat-Protect
+    JSONThreatProtection:
+      ArrayElementCount: 100
+      ObjectEntryCount: 100
+      StringValueLength: 4096
+      ContainerDepth: 10
+
+  # Global fault handler — sanitized errors, no upstream internals leaked
+  - name: FaultRule-Sanitize
+    AssignMessage:
+      set:
+        statusCode: "{error.status.code}"
+        payload:
+          contentType: application/json
+          value: '{"code":"{error.status.code}","message":"Request could not be completed."}'
+</script>
+
+<script type="text/plain" id="file-feature">Feature: Meridian Open Banking — Accounts API
+  Security and contract conformance for the generated proxy.
+  Run: APICKLI_BASE_URL=$TEST_HOST npm test -- tests/accounts
+
+  Background:
+    Given I set Accept header to "application/json"
+
+  # --- auth ------------------------------------------------------------------
+  Scenario: Missing access token is rejected
+    When I GET /accounts
+    Then response code should be 401
+    And response body path $.code should be 401
+
+  Scenario: Invalid access token is rejected
+    Given I set bearer token to "not-a-real-token"
+    When I GET /accounts
+    Then response code should be 401
+
+  # --- happy path + schema validation ---------------------------------------
+  Scenario: Valid token returns the consented accounts
+    Given I set bearer token from environment variable TPP_TOKEN
+    When I GET /accounts
+    Then response code should be 200
+    And response header Content-Type should be "application/json"
+    And response body should be valid against schema schemas/AccountList.json
+
+  Scenario: Balances are returned for a consented account
+    Given I set bearer token from environment variable TPP_TOKEN
+    When I GET /accounts/acc-001/balances
+    Then response code should be 200
+    And response body should be valid against schema schemas/BalanceList.json
+
+  # --- quota -----------------------------------------------------------------
+  Scenario: Per-TPP quota is enforced
+    Given I set bearer token from environment variable TPP_TOKEN
+    When I GET /accounts 1001 times within 60 seconds
+    Then response code should be 429
+    And response body path $.code should be 429
+
+  # --- fault sanitization ----------------------------------------------------
+  Scenario: Errors never leak upstream internals
+    Given I set bearer token from environment variable TPP_TOKEN
+    When I GET /accounts/does-not-exist/balances
+    Then response code should be 404
+    And response body should not contain "stackTrace"
+    And response body should not contain "meridian-core-banking"
+</script>
+
+<script type="text/plain" id="file-makefile"># Spec-driven Apigee X — pipeline targets. CI runs these SAME targets as the agent.
+# Usage:  make NAME=accounts verify       (recipes are tab-indented; GNU Make compatible)
+NAME   ?= accounts
+SPEC   := specs/$(NAME).yaml
+BUNDLE := apiproxies/$(NAME)
+TMP    := /tmp/$(NAME)
+
+.PHONY: all lint render mock test drift verify deploy-test rollback
+
+all: verify                       ## lint + render + drift + test
+
+lint:                             ## governance gate (must pass first)
+	npx spectral lint $(SPEC) --ruleset .spectral.yaml
+
+render: lint                      ## deterministic bundle render
+	apigee-go-gen render apiproxy --template templates/proxy.yaml --set-oas spec=$(SPEC) --output $(BUNDLE)
+
+mock:                             ## local mock target for fast iteration
+	apigee-go-gen render apiproxy --template templates/mock.yaml --set-oas spec=$(SPEC) --output .mocks/$(NAME)
+
+test:                             ## apickli acceptance tests
+	APICKLI_BASE_URL=$(TEST_HOST) npm test -- tests/$(NAME)
+
+drift: render                     ## re-render to /tmp and diff — expect no output
+	apigee-go-gen render apiproxy --template templates/proxy.yaml --set-oas spec=$(SPEC) --output $(TMP)
+	diff -r $(BUNDLE) $(TMP) && echo "OK: zero drift"
+
+verify: drift test                ## the full inner loop, gate to gate
+
+deploy-test:                      ## human-gated — deploy-gate.sh re-lints first
+	mvn -P test -Dapigee.config.options=update install
+	mvn -P test apigee-enterprise:deploy
+
+rollback:                         ## redeploy the previous revision (make rollback REV=6)
+	apigeecli apis deploy --name $(NAME) --rev $(REV) --env test --ovr
+</script>
+
+<script type="text/plain" id="file-config"># config/test.properties — consumed by the Apigee Maven config plugin.
+# Per-environment values. ONE bundle is promoted across envs; only this file changes.
+# NO secrets here — secrets live in KVM / the secrets manager and are referenced by policy.
+api.northbound.basepath=/open-banking/v1
+target.kvm=meridian-core-banking
+spikearrest.rate=50ps
+quota.allow=1000
+quota.interval=1
+quota.timeunit=minute
+# host + mTLS material resolved from KVM 'meridian-core-banking' at runtime
+</script>
+
+<script type="text/plain" id="file-claude"># Apigee X — Spec-Driven API Proxies
+
+Contract-first Apigee X proxies. The OpenAPI spec is the **single source of truth**;
+proxy bundles, policies, tests, and docs are derived from it.
+
+## The golden rule (do not violate)
+
+1. **Never hand-edit a generated proxy bundle** under `apiproxies/`. To change a proxy,
+   change the **spec** (`specs/`) or the **template** (`templates/`) and re-render.
+   A hook blocks manual edits to `apiproxies/`.
+2. **Never put secrets in specs, bundles, or git.** Credentials live in Apigee KVMs /
+   the secrets manager and are referenced by policy, never inlined.
+3. **Generation is deterministic; you supply judgment.** Drive the tools (below) to
+   produce the skeleton. Do not hand-author bundle XML from memory.
+
+## Verified commands (pin these — verify with `--help` before trusting)
+
+- **Lint spec:** `npx spectral lint specs/<name>.yaml --ruleset .spectral.yaml`
+- **Render bundle:** `apigee-go-gen render apiproxy --template templates/proxy.yaml --set-oas spec=specs/<name>.yaml --output apiproxies/<name>`
+- **Render local mock:** `apigee-go-gen render apiproxy --template templates/mock.yaml --set-oas spec=specs/<name>.yaml --output .mocks/<name>`
+- **Deploy to TEST:** `mvn -P test -Dapigee.config.options=update install` then `mvn -P test apigee-enterprise:deploy`
+- **Run acceptance tests:** `APICKLI_BASE_URL=$TEST_HOST npm test -- tests/<name>`
+- **Detect drift:** `apigee-go-gen render apiproxy ... --output /tmp/<name> && diff -r apiproxies/<name> /tmp/<name>`
+
+## Repo layout
+
+- `specs/` — OpenAPI 3.x specs. **Source of truth.**
+- `templates/` — apigee-go-gen YAML templates encoding org conventions.
+- `apiproxies/` — generated bundles. **Generated, never hand-edited.**
+- `tests/` — apickli `.feature` files + step definitions, one folder per API.
+- `config/` — environment config consumed by the Maven config plugin.
+- `.spectral.yaml` — the org OpenAPI ruleset (governance gate).
+- `.claude/` — agent config.
+
+## Workflow (follow every time)
+
+1. **Plan first** with the `proxy-explorer` subagent (plan mode).
+2. **Generate** with the `scaffold-proxy` skill (lint -> render -> policy -> test -> validate).
+3. **Review** with the `policy-reviewer` subagent before deploy.
+4. **Validate** against the mock or TEST env with apickli. Not done until tests pass.
+5. On spec change, **re-render and diff** to surface drift; resolve in spec/template.
+</script>
+
+<script type="text/plain" id="file-settings">{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-generated.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/deploy-gate.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+</script>
+
+<script type="text/plain" id="file-guard">#!/usr/bin/env bash
+# PreToolUse hook on Edit/Write/MultiEdit.
+# Blocks manual edits to generated proxy bundles. Change the spec or template instead.
+# Exit 2 => block the tool call and feed stderr back to Claude.
+
+set -euo pipefail
+input="$(cat)"
+
+# Extract the target file path from the tool input (handles Edit/Write/MultiEdit).
+path="$(printf '%s' "$input" | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    ti=d.get("tool_input",{})
+    print(ti.get("file_path") or ti.get("path") or "")
+except Exception:
+    print("")
+')"
+
+case "$path" in
+  */apiproxies/*)
+    echo "BLOCKED: $path is a generated bundle. Do not hand-edit apiproxies/." >&2
+    echo "Change the OpenAPI spec (specs/) or the template (templates/) and re-render." >&2
+    exit 2
+    ;;
+esac
+exit 0
+</script>
+
+<script type="text/plain" id="file-deploy">#!/usr/bin/env bash
+# PreToolUse hook on Bash.
+# "Block at submit time, not write time": only gates deploy commands. When a deploy is
+# about to run, require that the spec lint passes first.
+# Exit 2 => block; stderr is shown to Claude.
+
+set -euo pipefail
+input="$(cat)"
+
+cmd="$(printf '%s' "$input" | python3 -c '
+import json,sys
+try:
+    print(json.load(sys.stdin).get("tool_input",{}).get("command",""))
+except Exception:
+    print("")
+')"
+
+# Only act on Apigee deploy commands.
+if printf '%s' "$cmd" | grep -Eq 'apigee-enterprise:deploy|apigeecli .*(apis|deploy)'; then
+  echo "Deploy detected — running governance gate (spectral lint)..." >&2
+  if ! npx spectral lint specs/*.yaml --ruleset .spectral.yaml >&2; then
+    echo "BLOCKED: spec lint failed. Fix contract violations before deploying." >&2
+    exit 2
+  fi
+  echo "Lint passed. Confirm apickli acceptance tests are green before promoting beyond TEST." >&2
+fi
+exit 0
+</script>
+
+<script type="text/plain" id="file-skill">---
+name: scaffold-proxy
+description: >
+  Generate or update an Apigee X proxy from an OpenAPI spec. Runs the full
+  contract-first pipeline: lint -> render -> policies -> tests -> validate.
+---
+
+# Scaffold an Apigee X proxy from a spec
+
+You are executing the contract-first pipeline. The OpenAPI spec is the source of truth.
+Drive the deterministic tools; do not hand-author bundle XML. Read CLAUDE.md for the
+verified commands and conventions before running anything.
+
+## Steps (do them in order; stop and report on any failure)
+
+1. **Lint the spec first.** If it fails, STOP and surface the violations.
+2. **Render the bundle deterministically** into apiproxies/<name> using templates/.
+   If the template lacks something, propose a TEMPLATE change, not a bundle edit.
+3. **Layer judgment policies**: key/OAuth verification, Quota, SpikeArrest, threat
+   protection, target SSL, global FaultRule — via template or spec x- fields.
+4. **Generate apickli tests** per operation: happy path, auth-missing, quota,
+   schema validation, and at least one negative case.
+5. **Validate** on the local mock or TEST. Self-correct in the spec/template, re-run.
+6. **Drift check**: re-render to a temp dir and diff against apiproxies/<name>.
+
+## Before handing off
+- Hand the result to the `policy-reviewer` subagent for a security/governance audit.
+- Do NOT deploy beyond TEST — that is a human-gated step.
+</script>
+
+<script type="text/plain" id="file-explorer-agent">---
+name: proxy-explorer
+description: >
+  Read-only exploration agent. Use in plan mode before generating or changing a proxy.
+  Maps the spec, repo conventions, the template, and any prior bundle, then returns a
+  concise plan. Does not modify files.
+tools: Read, Grep, Glob
+model: haiku
+---
+
+You are an exploration agent for an Apigee X spec-driven repo. You do NOT modify
+anything. Gather just enough context for the main agent to plan a change, and return a
+short, structured briefing — not a file dump.
+
+When invoked for an API <name>:
+
+1. Read the spec in specs/ and summarize: paths/operations, auth scheme(s), base path,
+   and any x- extensions that affect generation.
+2. Inspect templates/ to note which conventions the shared template already applies.
+3. If a bundle exists in apiproxies/<name>, note what's there at a high level.
+4. Check tests/<name> for coverage and gaps.
+5. Flag risks: missing auth, inlined secrets, env-specific values, spec/template mismatch.
+
+Return: (a) a 3-6 line state summary, (b) a concrete step-by-step plan, (c) open
+questions to resolve before generating. Keep it tight — you exist to protect context.
+</script>
+
+<script type="text/plain" id="file-reviewer">---
+name: policy-reviewer
+description: >
+  Read-only security and governance auditor for generated Apigee X proxy bundles. Use
+  after scaffold-proxy and before any deploy. Reports findings by severity; never edits.
+tools: Read, Grep, Glob
+model: sonnet
+---
+
+You are a senior Apigee API security reviewer. You audit a generated proxy bundle and
+report findings; you never modify files. Audit apiproxies/<name> (and its spec) against
+this baseline. For each item report PASS / FAIL / N-A with a one-line reason.
+
+**Security**
+- Inbound auth (VerifyAPIKey or OAuthV2) on all non-public flows.
+- No credentials, tokens, keys, or private hosts inlined. Any literal secret is CRITICAL.
+- Target connection uses TLS with SSLInfo; no plaintext targets.
+- Threat protection present (JSON/XML/Regex as appropriate).
+- Sensitive data not logged; no debug/trace policies left enabled for production.
+
+**Resilience & governance**
+- Quota and SpikeArrest configured with sane values (not absent, not unlimited).
+- A global FaultRule returns sanitized errors (no stack traces, no upstream internals).
+- CORS configured intentionally if browser-facing (not wildcard by default).
+- Proxy name, base path, and flow conditions match the spec; no catch-all bypass.
+- Env-specific values externalized to config/, not hardcoded.
+
+**Spec fidelity**
+- Every spec operation maps to a conditional flow; no missing or extra operations.
+
+Output a findings table ordered by severity, then a one-line verdict:
+SAFE TO DEPLOY TO TEST / NEEDS FIXES. Recommend fixes as spec or template changes.
+</script>
+
+<script type="text/plain" id="file-actions">name: Deploy GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs
+      - id: deployment
+        uses: actions/deploy-pages@v4
+</script>
+
+<script>
+/* Clean-copy registry — declared first because the renderers below register
+   into it. Copy is decoupled from display, so it never includes shell prompts
+   or console output: a COPY button always yields the exact runnable text. */
+const RAW = [];
+
+/* ============================================================
+   DATA
+   ============================================================ */
+const STAGES = [
+  { id:'lint', n:'01', ico:'⌖', name:'Lint', kind:'machine',
+    title:'Spectral governance gate',
+    desc:'The org OpenAPI ruleset is the first gate. An invalid contract never generates a proxy — violations stop the run cold.',
+    why:'<b>Why first:</b> generating from a broken contract bakes the break into every artifact downstream. Fail at the cheapest possible point.',
+    cmd:`npx spectral lint specs/accounts.yaml --ruleset .spectral.yaml`,
+    file:'shell' },
+  { id:'render', n:'02', ico:'⊞', name:'Render', kind:'machine',
+    title:'Deterministic bundle render',
+    desc:'apigee-go-gen renders the proxy skeleton from the shared template. No hand-authored XML — the same spec always yields the same bundle.',
+    why:'<b>Why deterministic:</b> reproducible output makes diffs and reviews meaningful. If the template lacks something, you change the template, not the bundle.',
+    cmd:`apigee-go-gen render apiproxy \\
+  --template templates/proxy.yaml \\
+  --set-oas spec=specs/accounts.yaml \\
+  --output apiproxies/accounts`,
+    file:'shell' },
+  { id:'policies', n:'03', ico:'◆', name:'Policies', kind:'judgment',
+    title:'Layer judgment policies',
+    desc:'The part a template can\'t decide: OAuth2 verification, Quota, SpikeArrest, JSON threat protection, target SSL, and a global FaultRule — sized for THIS API.',
+    why:'<b>Why judgment:</b> codegen can scaffold a Quota element but not choose 1,000/min vs 50/min, or which flows are public. Express the decision through the template or spec <code>x-</code> fields so it stays reproducible.',
+    cmd:`# expressed in templates/proxy.yaml + spec x- extensions
+x-quota:      { allow: 1000, interval: 1, timeUnit: minute }
+x-spikearrest: 50ps
+security:     [ { openBankingOAuth: [accounts:read] } ]`,
+    file:'yaml' },
+  { id:'tests', n:'04', ico:'◆', name:'Tests', kind:'judgment',
+    title:'Generate apickli tests',
+    desc:'For each operation: happy path, auth-missing (401/403), quota/rate behavior, response-schema validation, and at least one negative/edge case.',
+    why:'<b>Why judgment:</b> the spec says what a valid response is; deciding which failure modes matter for a regulated API is a call the agent makes — then encodes as runnable Gherkin.',
+    cmd:`Feature: Accounts API — security & contract
+  Scenario: Missing token is rejected
+    When I GET /accounts
+    Then response code should be 401`,
+    file:'gherkin' },
+  { id:'validate', n:'05', ico:'⊜', name:'Validate', kind:'machine',
+    title:'Run against mock / TEST',
+    desc:'Point apickli at the local generated mock for a fast loop, or at a TEST deploy for integration. Real pass/fail — the agent self-corrects on facts, not vibes.',
+    why:'<b>Why it matters:</b> executable validation is the single biggest driver of reliability. A red test routes the fix back to the spec or template, then re-runs from lint.',
+    cmd:`APICKLI_BASE_URL=$TEST_HOST npm test -- tests/accounts`,
+    file:'shell' },
+  { id:'drift', n:'06', ico:'⇄', name:'Drift check', kind:'machine',
+    title:'Re-render + diff',
+    desc:'Render to a temp dir and diff against the committed bundle. Any difference means someone touched the build output — that\'s a defect, resolved in the spec/template.',
+    why:'<b>Why:</b> drift is how docs and runtime quietly diverge until a consumer breaks. Catching it on every change keeps the contract honest.',
+    cmd:`apigee-go-gen render apiproxy ... --output /tmp/accounts
+diff -r apiproxies/accounts /tmp/accounts   # expect: no diff`,
+    file:'shell' },
+  { id:'review', n:'07', ico:'◉', name:'Review', kind:'judgment',
+    title:'policy-reviewer audit',
+    desc:'A read-only sonnet subagent audits the bundle against the org baseline — auth, secrets, TLS, threat protection, quota, fault sanitization, spec fidelity — and reports by severity.',
+    why:'<b>Why judgment:</b> "generated, therefore correct" is a trap. A second, security-minded opinion catches weak defaults and missing controls before they ship.',
+    cmd:`→ policy-reviewer (Read, Grep, Glob)
+CRITICAL  no literal secrets ............ PASS
+HIGH      OAuth2 on all flows ........... PASS
+verdict:  SAFE TO DEPLOY TO TEST`,
+    file:'audit' },
+  { id:'promote', n:'08', ico:'⬚', name:'Promote', kind:'judgment',
+    title:'Human-gated deploy',
+    desc:'The agent never deploys beyond TEST. A human approves promotion; Maven deploys per-env config against one immutable artifact. Apigee revisions keep rollback one command away.',
+    why:'<b>Why human:</b> a push to a shared or prod env is hard to undo. The agent scaffolds, tests, and proposes — people own the irreversible step.',
+    cmd:`mvn -P test -Dapigee.config.options=update install
+mvn -P test apigee-enterprise:deploy   # human-approved`,
+    file:'shell' },
+];
+
+const STEPS = [
+  {
+    n:'01', kind:'machine', tab:'Write the spec', sub:'OPENAPI 3.x',
+    h:'Write the contract first',
+    lead:'No code yet. The team writes <code>specs/accounts.yaml</code> — the single artifact that drives everything. Proxy name derives from <code>info.title</code>; base path from <code>x-base-path</code>. Security, quotas, and response schemas live here as the contract.',
+    code:{ file:'specs/accounts.yaml', lang:'yaml', body:
+`<span class="t">openapi</span>: <span class="n">3.0.3</span>
+<span class="t">info</span>:
+  <span class="t">title</span>: <span class="s">Meridian Open Banking — Accounts API</span>   <span class="c"># → proxy: meridian-open-banking-accounts-api</span>
+  <span class="t">version</span>: <span class="s">1.2.0</span>
+<span class="t">servers</span>:
+  - <span class="t">url</span>: <span class="s">https://api.meridianbank.example/open-banking/v1</span>
+<span class="t">x-base-path</span>: <span class="s">/open-banking/v1</span>
+<span class="t">security</span>:
+  - <span class="t">openBankingOAuth</span>: [ <span class="s">accounts:read</span> ]      <span class="c"># default auth for every operation</span>
+<span class="t">components</span>:
+  <span class="t">securitySchemes</span>:
+    <span class="t">openBankingOAuth</span>:
+      <span class="t">type</span>: <span class="s">oauth2</span>
+      <span class="t">flows</span>:
+        <span class="t">authorizationCode</span>:
+          <span class="t">authorizationUrl</span>: <span class="s">https://auth.meridianbank.example/authorize</span>
+          <span class="t">tokenUrl</span>:        <span class="s">https://auth.meridianbank.example/token</span>
+          <span class="t">scopes</span>: { <span class="s">accounts:read</span>: <span class="s">Read account &amp; balance data</span> }
+<span class="t">paths</span>:
+  <span class="t">/accounts</span>:
+    <span class="t">get</span>:
+      <span class="t">operationId</span>: <span class="f">listAccounts</span>
+      <span class="t">x-quota</span>: { <span class="t">allow</span>: <span class="n">1000</span>, <span class="t">interval</span>: <span class="n">1</span>, <span class="t">timeUnit</span>: <span class="s">minute</span> }   <span class="c"># per-TPP posture</span>
+      <span class="t">responses</span>:
+        <span class="s">'200'</span>: { <span class="t">$ref</span>: <span class="s">'#/components/responses/AccountList'</span> }
+        <span class="s">'401'</span>: { <span class="t">$ref</span>: <span class="s">'#/components/responses/Unauthorized'</span> }
+        <span class="s">'429'</span>: { <span class="t">$ref</span>: <span class="s">'#/components/responses/TooManyRequests'</span> }
+  <span class="t">/accounts/{accountId}/balances</span>:
+    <span class="t">get</span>: { <span class="t">operationId</span>: <span class="f">getBalances</span>, ... }
+  <span class="t">/accounts/{accountId}/transactions</span>:
+    <span class="t">get</span>: { <span class="t">operationId</span>: <span class="f">listTransactions</span>, ... }` },
+    foot:{ kind:'machine', html:'<b>Note the absence of secrets.</b> The OAuth URLs are public endpoints; the actual client credentials and the core-banking host live in Apigee KVM, referenced by policy — never inlined here.' }
+  },
+  {
+    n:'02', kind:'machine', tab:'Lint the contract', sub:'SPECTRAL GATE',
+    h:'Lint before anything is generated',
+    lead:'The org ruleset (<code>.spectral.yaml</code>) encodes governance: every operation needs security, error schemas, no inline hosts. The first run fails — good. We fix the <b>spec</b>, never a downstream file, and re-run until clean.',
+    code:{ file:'$ spectral lint', lang:'shell', body:
+`<span class="dim">$</span> npx spectral lint specs/accounts.yaml --ruleset .spectral.yaml
+
+specs/accounts.yaml
+  <span class="dim">12:5</span>   <span class="n">warning</span>  owasp:api2-operation-tags     Operation should have non-empty <span class="s">tags</span>.
+  <span class="dim">47:9</span>   <span class="x">error</span>    owasp:api8-define-error-responses  <span class="s">/accounts</span> missing a <span class="s">429</span> response schema.
+  <span class="dim">61:7</span>   <span class="x">error</span>    meridian:no-inline-host       Target host must come from KVM, not the spec.
+
+<span class="x">✖ 2 errors, 1 warning</span>
+
+<span class="c"># fix in the SPEC → add 429 schema, tag operations, remove inline host</span>
+<span class="dim">$</span> npx spectral lint specs/accounts.yaml --ruleset .spectral.yaml
+<span class="g">✓ No results with a severity of 'error' found. Contract is clean.</span>` ,
+      raw:`npx spectral lint specs/accounts.yaml --ruleset .spectral.yaml` },
+    foot:{ kind:'machine', html:'A <code>deploy-gate.sh</code> hook re-runs this exact lint the moment a deploy command is detected, so a contract violation can never reach an environment even if a step is skipped.' }
+  },
+  {
+    n:'03', kind:'machine', tab:'Render the bundle', sub:'apigee-go-gen',
+    h:'Render the deterministic skeleton',
+    lead:'<code>apigee-go-gen render</code> turns the clean spec into a full proxy bundle using the shared template. Every conditional flow, the target stub, and the baseline policy set appear automatically — and identically on every run.',
+    code:{ file:'$ render → apiproxies/accounts/', lang:'tree', body:
+`<span class="dim">$</span> apigee-go-gen render apiproxy \\
+    --template templates/proxy.yaml \\
+    --set-oas spec=specs/accounts.yaml \\
+    --output apiproxies/accounts
+
+<span class="d">apiproxies/accounts/</span>
+└── <span class="d">apiproxy/</span>
+    ├── <span class="gen">meridian-open-banking-accounts-api.xml</span>   <span class="c"># name from info.title</span>
+    ├── <span class="d">proxies/</span>
+    │   └── <span class="gen">default.xml</span>                <span class="c"># 1 conditional flow per operation</span>
+    ├── <span class="d">targets/</span>
+    │   └── <span class="gen">default.xml</span>                <span class="c"># SSLInfo + KVM host ref</span>
+    └── <span class="d">policies/</span>
+        ├── <span class="pol">VerifyOAuthToken.xml</span>
+        ├── <span class="pol">Quota-PerApp.xml</span>
+        ├── <span class="pol">SpikeArrest.xml</span>
+        ├── <span class="pol">JSON-Threat-Protect.xml</span>
+        └── <span class="pol">FaultRule-Sanitize.xml</span>` ,
+      raw:`apigee-go-gen render apiproxy \\
+  --template templates/proxy.yaml \\
+  --set-oas spec=specs/accounts.yaml \\
+  --output apiproxies/accounts` },
+    foot:{ kind:'machine', html:'Nobody typed any XML. The bundle is committed to git as <b>build output</b> — and the <code>guard-generated.sh</code> hook will reject any attempt to hand-edit it.' }
+  },
+  {
+    n:'04', kind:'judgment', tab:'Decide policies', sub:'AGENT JUDGMENT',
+    h:'Layer the judgment policies',
+    lead:'The template scaffolds the policy <em>elements</em>; the agent decides their <em>values</em> for a regulated API — and encodes those decisions back into the template / spec <code>x-</code> fields so they\'re reproducible, never a one-off bundle edit.',
+    code:{ file:'VerifyOAuthToken.xml — rendered from the contract', lang:'xml', body:
+`<span class="c">&lt;!-- generated from security + x- fields. Edit the SPEC/TEMPLATE, not this. --&gt;</span>
+<span class="t">&lt;OAuthV2</span> <span class="f">name</span>=<span class="s">"VerifyOAuthToken"</span><span class="t">&gt;</span>
+  <span class="t">&lt;Operation&gt;</span>VerifyAccessToken<span class="t">&lt;/Operation&gt;</span>
+  <span class="t">&lt;Scope&gt;</span>accounts:read<span class="t">&lt;/Scope&gt;</span>          <span class="c">&lt;!-- from spec security --&gt;</span>
+<span class="t">&lt;/OAuthV2&gt;</span>
+
+<span class="t">&lt;Quota</span> <span class="f">name</span>=<span class="s">"Quota-PerApp"</span> <span class="f">type</span>=<span class="s">"calendar"</span><span class="t">&gt;</span>
+  <span class="t">&lt;Allow</span> <span class="f">count</span>=<span class="s">"1000"</span><span class="t">/&gt;</span>                  <span class="c">&lt;!-- x-quota.allow --&gt;</span>
+  <span class="t">&lt;Interval&gt;</span>1<span class="t">&lt;/Interval&gt;</span> <span class="t">&lt;TimeUnit&gt;</span>minute<span class="t">&lt;/TimeUnit&gt;</span>
+  <span class="t">&lt;Identifier</span> <span class="f">ref</span>=<span class="s">"client_id"</span><span class="t">/&gt;</span>          <span class="c">&lt;!-- per-TPP, not global --&gt;</span>
+<span class="t">&lt;/Quota&gt;</span>
+
+<span class="t">&lt;TargetEndpoint&gt;</span> ... <span class="t">&lt;SSLInfo&gt;&lt;Enabled&gt;</span>true<span class="t">&lt;/Enabled&gt;</span>
+  <span class="t">&lt;KeyStore&gt;</span>ref://<span class="s">meridian-mtls-keystore</span><span class="t">&lt;/KeyStore&gt;</span> <span class="c">&lt;!-- KVM ref --&gt;</span>
+<span class="t">&lt;/SSLInfo&gt;</span></span>` },
+    foot:{ kind:'judgment', html:'<b>The decision was the count and the identifier</b> — 1,000/min, keyed per TPP <code>client_id</code> not globally. The template renders it; the agent chose it; the spec records it.' }
+  },
+  {
+    n:'05', kind:'judgment', tab:'Generate tests', sub:'apickli · GHERKIN',
+    h:'Generate executable tests per operation',
+    lead:'For every operation the agent writes Gherkin covering the cases that matter for a regulated bank API: happy path, missing/invalid token, per-TPP quota, and response-schema conformance. These run against the mock and TEST.',
+    code:{ file:'tests/accounts/features/accounts.feature', lang:'gherkin', body:
+`<span class="k">Feature:</span> Accounts API — security &amp; contract
+
+  <span class="k">Scenario:</span> Missing token is rejected
+    <span class="k">When</span> I GET <span class="s">/accounts</span>
+    <span class="k">Then</span> response code should be <span class="n">401</span>
+
+  <span class="k">Scenario:</span> Valid token returns consented accounts
+    <span class="k">Given</span> I set bearer token from <span class="s">$TPP_TOKEN</span>
+    <span class="k">When</span> I GET <span class="s">/accounts</span>
+    <span class="k">Then</span> response code should be <span class="n">200</span>
+    <span class="k">And</span> response body should be valid against schema <span class="s">AccountList</span>
+
+  <span class="k">Scenario:</span> Per-TPP quota is enforced
+    <span class="k">Given</span> I set bearer token from <span class="s">$TPP_TOKEN</span>
+    <span class="k">When</span> I GET <span class="s">/accounts</span> 1001 times within 1 minute
+    <span class="k">Then</span> response code should be <span class="n">429</span>
+
+  <span class="k">Scenario:</span> Error responses never leak PII
+    <span class="k">When</span> I GET <span class="s">/accounts/does-not-exist/balances</span>
+    <span class="k">Then</span> response code should be <span class="n">404</span>
+    <span class="k">And</span> response body should not contain <span class="s">"stackTrace"</span>` },
+    foot:{ kind:'judgment', html:'<b>The judgment is the scenario set.</b> A demo tests the happy path; a regulated API also proves auth failure, quota enforcement, and that faults are sanitized.' }
+  },
+  {
+    n:'06', kind:'machine', tab:'Validate & drift', sub:'MOCK / TEST + DIFF',
+    h:'Validate, then prove there\'s no drift',
+    lead:'Run apickli against the generated mock for a fast loop, then a TEST deploy. A red test sends the fix back to the <b>spec or template</b> — never the bundle. Finally, re-render and diff to prove the committed bundle still matches the contract.',
+    code:{ file:'$ validate + drift check', lang:'shell', body:
+`<span class="dim">$</span> APICKLI_BASE_URL=$TEST_HOST npm test -- tests/accounts
+
+  Accounts API — security &amp; contract
+  <span class="g">✓</span> Missing token is rejected (401)
+  <span class="g">✓</span> Valid token returns consented accounts (200, schema ok)
+  <span class="g">✓</span> Per-TPP quota is enforced (429)
+  <span class="g">✓</span> Error responses never leak PII
+
+  <span class="g">4 scenarios (4 passed)  ·  16 steps (16 passed)</span>
+
+<span class="dim">$</span> apigee-go-gen render apiproxy ... --output /tmp/accounts
+<span class="dim">$</span> diff -r apiproxies/accounts /tmp/accounts
+<span class="g"># (no output) → zero drift. The committed bundle == the contract.</span>` ,
+      raw:`APICKLI_BASE_URL=$TEST_HOST npm test -- tests/accounts
+
+apigee-go-gen render apiproxy --template templates/proxy.yaml \\
+  --set-oas spec=specs/accounts.yaml --output /tmp/accounts
+diff -r apiproxies/accounts /tmp/accounts   # expect: no output` },
+    foot:{ kind:'machine', html:'Green tests <em>and</em> an empty diff is the bar for "done". Either one failing routes you back up the pipeline — you never patch your way forward in the bundle.' }
+  },
+  {
+    n:'07', kind:'judgment', tab:'Security review', sub:'policy-reviewer',
+    h:'Independent security & governance audit',
+    lead:'Before any deploy, the read-only <b>policy-reviewer</b> subagent audits the bundle against the org baseline and returns findings by severity. It recommends fixes as spec/template changes — it never edits files.',
+    code:null,
+    findings:[
+      ['crit','CRITICAL','No credentials, tokens, or hosts inlined in the bundle','pass','PASS'],
+      ['high','HIGH','OAuth2 verification present on all non-public flows','pass','PASS'],
+      ['high','HIGH','Target uses TLS with SSLInfo; no plaintext target','pass','PASS'],
+      ['med','MEDIUM','Quota (1000/min/app) + SpikeArrest (50ps) configured','pass','PASS'],
+      ['med','MEDIUM','Global FaultRule returns sanitized errors, no stack traces','pass','PASS'],
+      ['low','LOW','CORS not configured (server-to-server, browser-facing N/A)','na','N/A'],
+      ['low','LOW','Every spec operation maps to one conditional flow','pass','PASS'],
+    ],
+    verdict:'SAFE TO DEPLOY TO TEST',
+    foot:{ kind:'judgment', html:'The reviewer runs on <b>sonnet</b> with only <code>Read, Grep, Glob</code> — a genuine second opinion that can\'t accidentally "fix" something and mask the finding.' }
+  },
+  {
+    n:'08', kind:'judgment', tab:'Human-gated deploy', sub:'MAVEN · TEST',
+    h:'A human approves the promotion',
+    lead:'The agent has scaffolded, tested, and proven the proxy — and it stops. A person reviews the summary and approves the TEST deploy. The deploy-gate hook re-runs lint first; env values come from <code>config/</code>; one artifact promotes across environments.',
+    code:{ file:'$ deploy to TEST (human-approved)', lang:'shell', body:
+`<span class="c"># deploy-gate.sh fires on this command → re-lints the spec first</span>
+<span class="dim">$</span> mvn -P test -Dapigee.config.options=update install
+<span class="dim">$</span> mvn -P test apigee-enterprise:deploy
+
+<span class="dim">[hook]</span> Deploy detected — running governance gate (spectral lint)...
+<span class="g">[hook]</span> Lint passed. Confirm apickli green before promoting beyond TEST.
+
+  <span class="g">[INFO] Importing bundle: meridian-open-banking-accounts-api</span>
+  <span class="g">[INFO] Deployed revision 7 to environment: test</span>
+  <span class="g">[INFO] BUILD SUCCESS</span>
+
+<span class="c"># rollback is one command: redeploy the prior revision</span>
+<span class="dim">$</span> apigeecli apis deploy --name ...accounts-api --rev 6 --env test --ovr` ,
+      raw:`mvn -P test -Dapigee.config.options=update install
+mvn -P test apigee-enterprise:deploy
+
+# rollback is one command: redeploy the prior revision
+apigeecli apis deploy --name meridian-open-banking-accounts-api --rev 6 --env test --ovr` },
+    foot:{ kind:'judgment', html:'Promotion beyond TEST is a separate human decision. Apigee <b>revisions</b> keep the prior version deployable, so rollback is instant — and the same bundle moves to PROD with only its <code>config/</code> changing.' }
+  },
+];
+
+const PITFALLS = [
+  { n:'01', cat:'drift', t:'Agent hand-edits bundle XML', why:'Invents invalid policy attributes, silently drifts from the spec, and isn\'t reproducible.', fix:'Golden rule + <b>guard-generated.sh</b> hook blocking edits to apiproxies/. Route every change through spec/template.' },
+  { n:'02', cat:'drift', t:'Spec and deployed proxy drift', why:'Docs say one thing, runtime does another — consumers break without warning.', fix:'Re-render + <b>diff on every change</b>. Any diff is a defect; never patch the bundle directly.' },
+  { n:'03', cat:'security', t:'Secrets inlined in spec or git', why:'Credential leak, failed audit, rotation becomes impossible.', fix:'<b>KVM / secrets manager only.</b> Reviewer treats any literal secret as CRITICAL; secret-scanning in CI.' },
+  { n:'04', cat:'drift', t:'Env values baked into the bundle', why:'Can\'t promote one artifact across envs; risky copy-paste between environments.', fix:'Externalize to <b>config/</b> per env via the Maven config plugin. One bundle, many env configs.' },
+  { n:'05', cat:'security', t:'"Generated, therefore correct"', why:'Codegen can omit auth/quota or pick weak defaults and ship something insecure.', fix:'Mandatory <b>policy-reviewer</b> audit before deploy; the security baseline is encoded in the template.' },
+  { n:'06', cat:'testing', t:'Happy-path-only tests', why:'Regressions slip through; a spec change silently breaks consumers.', fix:'Generate <b>auth-fail, schema, quota, and negative</b> cases per operation. Tests must pass before "done".' },
+  { n:'07', cat:'testing', t:'Flaky / order-dependent tests', why:'Pipeline noise erodes trust until real failures get ignored.', fix:'Isolate state per scenario; use the <b>deterministic generated mock</b>. No shared mutable fixtures.' },
+  { n:'08', cat:'ops', t:'Agent context bloat on big specs', why:'Attention degrades, quality drops, auto-compaction loses the thread.', fix:'Delegate exploration to the <b>proxy-explorer</b> subagent; keep the main session on decisions.' },
+  { n:'09', cat:'drift', t:'Non-determinism between runs', why:'Two runs produce different bundles, so reviews become meaningless.', fix:'Keep judgment in the <b>template/spec</b>, not free-form per-run prompts. Diff to confirm stability.' },
+  { n:'10', cat:'ops', t:'Over-broad perms / auto-deploy', why:'An agent push to a shared or prod env is hard to undo.', fix:'Read-only reviewers; <b>deploys human-gated</b>; least-privilege service accounts.' },
+  { n:'11', cat:'ops', t:'Rollback not planned', why:'A bad deploy with no fast undo means extended downtime.', fix:'Use Apigee <b>revisions</b>; keep the prior revision deployable; script and test rollback.' },
+  { n:'12', cat:'ops', t:'Template becomes a dumping ground', why:'Unreviewable, and every API inherits the cruft.', fix:'Treat the template as code — <b>review template changes harder</b> than proxy changes. Keep it minimal.' },
+  { n:'13', cat:'ops', t:'Tool / flag drift', why:'Commands in CLAUDE.md stop matching the installed tool versions.', fix:'<b>Pin versions</b>; CI runs the exact CLAUDE.md commands so drift fails loudly.' },
+  { n:'14', cat:'testing', t:'CI and the agent loop diverge', why:'Works locally, fails in the pipeline — or the reverse.', fix:'CI runs the <b>same skill commands</b> (lint → render → diff → test). The agent loop mirrors CI exactly.' },
+];
+
+const CHECKLIST = [
+  'Spectral ruleset encodes org governance and runs as the first gate',
+  'Shared template provides the security/resilience baseline; reviewed as code',
+  'Generated bundles committed but write-protected from manual edits (hook)',
+  'apickli suite covers happy path + auth + schema + negative per operation',
+  'Local mock loop for fast iteration; TEST deploy for integration',
+  'Secrets in KVM/secrets manager; secret-scanning in CI; zero literals in repo',
+  'Env config externalized per environment; one artifact promoted across envs',
+  'Deploys human-gated beyond TEST; rollback to prior revision scripted',
+  'Tool versions pinned; CI runs the same commands as the agent',
+  'policy-reviewer audit required before any deploy',
+];
+
+const COMMANDS = [
+  { l:'Lint spec', c:`npx spectral lint <span class="pp">specs/&lt;name&gt;.yaml</span> <span class="fl">--ruleset</span> .spectral.yaml` },
+  { l:'Render bundle', c:`apigee-go-gen render apiproxy <span class="fl">--template</span> templates/proxy.yaml <span class="fl">--set-oas</span> spec=<span class="pp">specs/&lt;name&gt;.yaml</span> <span class="fl">--output</span> apiproxies/&lt;name&gt;` },
+  { l:'Render local mock', c:`apigee-go-gen render apiproxy <span class="fl">--template</span> templates/mock.yaml <span class="fl">--set-oas</span> spec=<span class="pp">specs/&lt;name&gt;.yaml</span> <span class="fl">--output</span> .mocks/&lt;name&gt;` },
+  { l:'Run acceptance tests', c:`APICKLI_BASE_URL=$TEST_HOST npm test <span class="fl">--</span> tests/&lt;name&gt;` },
+  { l:'Deploy to TEST (Maven)', c:`mvn <span class="fl">-P</span> test <span class="fl">-Dapigee.config.options</span>=update install &amp;&amp; mvn <span class="fl">-P</span> test apigee-enterprise:deploy` },
+  { l:'Detect drift', c:`apigee-go-gen render apiproxy ... <span class="fl">--output</span> /tmp/&lt;name&gt; &amp;&amp; diff <span class="fl">-r</span> apiproxies/&lt;name&gt; /tmp/&lt;name&gt;` },
+];
+
+/* ============================================================
+   RENDER: pipeline stages
+   ============================================================ */
+const pipeEl = document.getElementById('pipeline');
+const detailEl = document.getElementById('stage-detail');
+STAGES.forEach((s, i) => {
+  const el = document.createElement('div');
+  el.className = 'stage';
+  el.dataset.kind = s.kind;
+  el.dataset.id = s.id;
+  el.innerHTML = `
+    <span class="pin"></span>
+    <span class="sidx">${s.n}</span>
+    <span class="sico">${s.ico}</span>
+    <span class="sname">${s.name}</span>
+    <span class="skind">${s.kind === 'machine' ? '◇ deterministic' : '◆ judgment'}</span>`;
+  el.addEventListener('click', () => openStage(s.id));
+  pipeEl.appendChild(el);
+});
+
+function openStage(id){
+  const s = STAGES.find(x => x.id === id);
+  document.querySelectorAll('.stage').forEach(n => n.classList.toggle('active', n.dataset.id === id));
+  detailEl.innerHTML = `
+    <div class="sd-head">
+      <span class="sd-ico">${s.ico}</span>
+      <h3>${s.title}</h3>
+      <span class="sd-badge ${s.kind}">${s.kind === 'machine' ? '◇ deterministic' : '◆ judgment'}</span>
+    </div>
+    <div class="sd-body">
+      <p>${s.desc}</p>
+      <p class="why">${s.why}</p>
+      <div class="code">
+        <div class="code-head"><div class="dotrow"><i></i><i></i><i></i></div><span class="fname">${s.file === 'shell' ? '$ command' : s.file}</span><button class="copy" data-raw="${regRaw(s.cmd)}">COPY</button></div>
+        <pre><code>${escapeHtml(s.cmd)}</code></pre>
+      </div>
+    </div>`;
+  detailEl.classList.add('show');
+  bindCopy(detailEl);
+}
+
+/* ============================================================
+   RENDER: use-case stepper
+   ============================================================ */
+const railEl = document.getElementById('steps-rail');
+const bodyEl = document.getElementById('steps-body');
+STEPS.forEach((st, i) => {
+  const tab = document.createElement('button');
+  tab.className = `step-tab ${st.kind}${i === 0 ? ' active' : ''}`;
+  tab.dataset.idx = i;
+  tab.innerHTML = `<span class="st-n">${st.n}</span><span>${st.tab}<span class="st-x">${st.sub}</span></span>`;
+  tab.addEventListener('click', () => selectStep(i));
+  railEl.appendChild(tab);
+
+  const panel = document.createElement('div');
+  panel.className = `step-panel${i === 0 ? ' active' : ''}`;
+  panel.dataset.idx = i;
+
+  let inner = `
+    <div class="sp-head">
+      <span class="sp-kind ${st.kind}">${st.kind === 'machine' ? '◇ deterministic' : '◆ judgment'}</span>
+    </div>
+    <h4>${st.h}</h4>
+    <p class="sp-lead">${st.lead}</p>`;
+
+  if (st.code){
+    const rawIdx = regRaw(st.code.raw || htmlToText(st.code.body));
+    inner += `
+      <div class="code">
+        <div class="code-head"><div class="dotrow"><i></i><i></i><i></i></div><span class="fname">${st.code.file}</span><button class="copy" data-raw="${rawIdx}">COPY</button></div>
+        <pre><code>${st.code.body}</code></pre>
+      </div>`;
+  }
+  if (st.findings){
+    inner += `<table class="findings"><thead><tr><th>Severity</th><th>Finding</th><th>Status</th></tr></thead><tbody>`;
+    st.findings.forEach(f => {
+      inner += `<tr><td><span class="sev ${f[0]}">${f[1]}</span></td><td>${f[2]}</td><td>${f[3] === 'pass' ? `<span class="st-pass">✓ ${f[4]}</span>` : `<span class="st-na">${f[4]}</span>`}</td></tr>`;
+    });
+    inner += `</tbody></table><div class="verdict">✓ VERDICT — ${st.verdict}</div>`;
+  }
+  if (st.foot){
+    inner += `<div class="step-foot ${st.foot.kind}">${st.foot.html}</div>`;
+  }
+  panel.innerHTML = inner;
+  bodyEl.appendChild(panel);
+});
+bindCopy(bodyEl);
+
+function selectStep(i){
+  document.querySelectorAll('.step-tab').forEach(t => t.classList.toggle('active', +t.dataset.idx === i));
+  document.querySelectorAll('.step-panel').forEach(p => p.classList.toggle('active', +p.dataset.idx === i));
+}
+
+/* ============================================================
+   RENDER: pitfalls
+   ============================================================ */
+const pitGrid = document.getElementById('pit-grid');
+const catLabel = { drift:'Drift & determinism', security:'Security', testing:'Testing', ops:'Ops & agent' };
+PITFALLS.forEach(p => {
+  const el = document.createElement('div');
+  el.className = 'pit';
+  el.dataset.cat = p.cat;
+  el.innerHTML = `
+    <div class="pit-cat">${catLabel[p.cat]}</div>
+    <div class="pit-h"><span class="pit-n">P${p.n}</span><h5>${p.t}</h5></div>
+    <p class="pit-why">${p.why}</p>
+    <p class="pit-fix"><b>Prevent →</b> ${p.fix}</p>`;
+  pitGrid.appendChild(el);
+});
+document.getElementById('pit-filter').addEventListener('click', e => {
+  const btn = e.target.closest('.fbtn');
+  if (!btn) return;
+  document.querySelectorAll('.fbtn').forEach(b => b.classList.toggle('active', b === btn));
+  const cat = btn.dataset.cat;
+  document.querySelectorAll('.pit').forEach(p => {
+    p.classList.toggle('hide', cat !== 'all' && p.dataset.cat !== cat);
+  });
+});
+
+/* ============================================================
+   RENDER: checklist (localStorage)
+   ============================================================ */
+const clList = document.getElementById('cl-list');
+const KEY = 'sdd-apigee-checklist';
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch(e){ state = {}; }
+const check = `<svg viewBox="0 0 24 24" fill="none" stroke="#070b14" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+CHECKLIST.forEach((c, i) => {
+  const el = document.createElement('div');
+  el.className = `cl-item${state[i] ? ' done' : ''}`;
+  el.dataset.idx = i;
+  el.innerHTML = `<span class="cl-box">${check}</span><span class="cl-txt">${c}</span>`;
+  el.addEventListener('click', () => {
+    state[i] = !state[i];
+    el.classList.toggle('done', state[i]);
+    localStorage.setItem(KEY, JSON.stringify(state));
+    updateProgress();
+  });
+  clList.appendChild(el);
+});
+function updateProgress(){
+  const done = CHECKLIST.filter((_, i) => state[i]).length;
+  document.getElementById('cl-count').textContent = `${done} / ${CHECKLIST.length}`;
+  document.getElementById('cl-fill').style.width = `${(done / CHECKLIST.length) * 100}%`;
+}
+document.getElementById('cl-reset').addEventListener('click', () => {
+  state = {}; localStorage.removeItem(KEY);
+  document.querySelectorAll('.cl-item').forEach(el => el.classList.remove('done'));
+  updateProgress();
+});
+updateProgress();
+
+/* ============================================================
+   RENDER: cheatsheet
+   ============================================================ */
+const cheatEl = document.getElementById('cheat');
+COMMANDS.forEach(c => {
+  const el = document.createElement('div');
+  el.className = 'cmd';
+  const raw = htmlToText(c.c);
+  el.innerHTML = `<div class="cmd-l">${c.l}<button class="copy cmd-copy" data-raw="${regRaw(raw)}" style="margin-left:auto;border:1px solid var(--line);background:transparent;color:var(--txt-3);font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:5px;cursor:pointer">COPY</button></div><pre>${c.c}</pre>`;
+  cheatEl.appendChild(el);
+});
+bindCopy(cheatEl);
+
+/* ============================================================
+   Spotlight toggles
+   ============================================================ */
+['machine','judgment'].forEach(kind => {
+  const tg = document.getElementById('tg-' + kind);
+  tg.addEventListener('click', () => {
+    const on = !tg.classList.contains('on');
+    document.getElementById('tg-machine').classList.remove('on');
+    document.getElementById('tg-judgment').classList.remove('on');
+    document.body.classList.remove('hl-machine','hl-judgment');
+    if (on){ tg.classList.add('on'); document.body.classList.add('hl-' + kind); }
+  });
+});
+
+/* ============================================================
+   Utilities: copy, escape, reveal, nav
+   ============================================================ */
+function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function htmlToText(html){ const d=document.createElement('div'); d.innerHTML = html; return d.textContent; }
+
+function regRaw(text){ return RAW.push(text) - 1; }
+
+function flashCopied(btn){
+  const orig = btn.dataset.label || btn.textContent;
+  if (!btn.dataset.label) btn.dataset.label = orig;
+  btn.textContent = '✓ COPIED'; btn.classList.add('done');
+  setTimeout(() => { btn.textContent = btn.dataset.label; btn.classList.remove('done'); }, 1600);
+}
+function doCopy(text, btn){ navigator.clipboard.writeText(text).then(() => flashCopied(btn)); }
+
+function bindCopy(scope){
+  scope.querySelectorAll('.copy').forEach(btn => {
+    if (btn.dataset.bound) return; btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      const text = (btn.dataset.raw !== undefined)
+        ? RAW[+btn.dataset.raw]
+        : btn.closest('.code').querySelector('code').innerText;
+      doCopy(text, btn);
+    });
+  });
+}
+bindCopy(document);
+
+function download(filename, text){
+  const blob = new Blob([text], { type:'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename.split('/').pop();
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// lightweight, display-only highlighter (copy is always pristine via RAW)
+function hl(raw, lang){
+  const esc = escapeHtml(raw);
+  return esc.split('\n').map(line => hlLine(line, lang)).join('\n');
+}
+function hlLine(line, lang){
+  const t = line.trim();
+  if (lang === 'md'){
+    if (t.startsWith('#')) return '<span class=t>' + line + '</span>';
+    line = line.replace(/(`[^`]*`)/g, '<span class=s>$1</span>');
+    return line.replace(/(\*\*[^*]+\*\*)/g, '<span class=f style="color:#e7eef7;font-weight:600">$1</span>');
+  }
+  if (['sh','yaml','make','ini','gherkin'].includes(lang) && t.startsWith('#'))
+    return '<span class=c>' + line + '</span>';
+  if (lang === 'xml' && t.startsWith('&lt;!--')) return '<span class=c>' + line + '</span>';
+
+  let out = line.replace(/('[^']*'|"[^"]*")/g, '<span class=s>$1</span>');
+  if (lang === 'yaml')
+    out = out.replace(/^(\s*-?\s*)([A-Za-z0-9_.$-]+)(:)/, (m,a,b,c) => a + '<span class=t>' + b + '</span>' + c);
+  if (lang === 'ini')
+    out = out.replace(/^([A-Za-z0-9_.]+)(=)/, (m,a,b) => '<span class=t>' + a + '</span>' + b);
+  if (lang === 'json')
+    out = out.replace(/("(?:[^"\\]|\\.)*")(\s*:)/g, '<span class=t>$1</span>$2');
+  if (lang === 'gherkin')
+    out = out.replace(/^(\s*)(Feature|Scenario|Background|Given|When|Then|And|But)/, (m,a,b) => a + '<span class=k>' + b + '</span>');
+  if (lang === 'make')
+    out = out.replace(/^([A-Za-z0-9_.-]+)(:)(?!=)/, '<span class=t>$1</span>$2');
+  if (lang === 'xml')
+    out = out.replace(/(&lt;\/?[A-Za-z][\w.:-]*)/g, '<span class=t>$1</span>');
+  return out;
+}
+
+// reveal on scroll
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+}, { threshold:0.12, rootMargin:'0px 0px -40px 0px' });
+document.querySelectorAll('.rv').forEach(el => io.observe(el));
+
+// nav scroll state + active section
+const nav = document.getElementById('nav');
+const sections = [...document.querySelectorAll('section[id]')];
+const navlinks = [...document.querySelectorAll('.nav-links a')];
+window.addEventListener('scroll', () => {
+  nav.classList.toggle('scrolled', window.scrollY > 30);
+  let cur = '';
+  sections.forEach(s => { if (window.scrollY >= s.offsetTop - 120) cur = s.id; });
+  navlinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
+}, { passive:true });
+
+/* ============================================================
+   STARTER KIT — file explorer + bootstrap generator
+   ============================================================ */
+const FILES = [
+  { g:'Contract',   name:'specs/accounts.yaml',                       lang:'yaml',    id:'file-spec',          desc:'The single source of truth. Proxy name, base path, security, quotas, and schemas all derive from here. <b>No secrets.</b>' },
+  { g:'Contract',   name:'.spectral.yaml',                            lang:'yaml',    id:'file-spectral',      desc:'The org governance ruleset — the first gate. Fails the build on missing auth, missing error responses, inline hosts, or literal secrets.' },
+  { g:'Generation', name:'templates/proxy.yaml',                      lang:'yaml',    id:'file-template',      desc:'The apigee-go-gen template holding the shared security/resilience baseline every API inherits. <b>Review changes harder than a proxy.</b>' },
+  { g:'Generation', name:'Makefile',                                  lang:'make',    id:'file-makefile',      desc:'Pipeline targets (tab-indented, GNU Make compatible). CI runs these same targets as the agent loop, so tool/flag drift fails loudly.' },
+  { g:'Generation', name:'config/test.properties',                    lang:'ini',     id:'file-config',        desc:'Per-environment values for the Maven config plugin. One bundle is promoted across envs; only this file changes. No secrets.' },
+  { g:'Tests',      name:'tests/accounts/features/accounts.feature',  lang:'gherkin', id:'file-feature',       desc:'apickli suite: auth-missing, happy path + schema validation, per-TPP quota, and fault sanitization (no PII leak).' },
+  { g:'Claude harness', name:'CLAUDE.md',                             lang:'md',      id:'file-claude',        desc:'Always-true context: the golden rule, the verified command block, conventions, and the workflow.' },
+  { g:'Claude harness', name:'.claude/settings.json',                 lang:'json',    id:'file-settings',      desc:'Wires the two PreToolUse hooks that enforce the discipline.' },
+  { g:'Claude harness', name:'.claude/skills/scaffold-proxy/SKILL.md',lang:'md',      id:'file-skill',         desc:'One skill owns the whole pipeline so the workflow runs identically every time.' },
+  { g:'Claude harness', name:'.claude/agents/proxy-explorer.md',      lang:'md',      id:'file-explorer-agent',desc:'Read-only haiku planner for plan mode (Read/Grep/Glob only). Protects the main context window.' },
+  { g:'Claude harness', name:'.claude/agents/policy-reviewer.md',     lang:'md',      id:'file-reviewer',      desc:'Read-only sonnet security auditor — the mandatory pre-deploy gate. Reports by severity; never edits.' },
+  { g:'Claude harness', name:'.claude/hooks/guard-generated.sh',      lang:'sh',      id:'file-guard',         desc:'Blocks hand-edits to apiproxies/ at write time. Exit 2 = block + tell Claude why.' },
+  { g:'Claude harness', name:'.claude/hooks/deploy-gate.sh',          lang:'sh',      id:'file-deploy',        desc:'Re-runs spectral lint the moment a deploy command is detected, so a bad contract never reaches an env.' },
+  { g:'Deploy',     name:'.github/workflows/deploy-pages.yml',        lang:'yaml',    id:'file-actions',       desc:'Auto-publishes docs/ to GitHub Pages on every push to main. This site ships itself.' },
+];
+
+const fileText = (id) => document.getElementById(id).textContent.replace(/^\n/, '');
+
+const exTree = document.getElementById('ex-tree');
+let curFile = 0;
+const groups = [...new Set(FILES.map(f => f.g))];
+groups.forEach(g => {
+  const gl = document.createElement('div'); gl.className = 'ex-group'; gl.textContent = g; exTree.appendChild(gl);
+  FILES.forEach((f, i) => {
+    if (f.g !== g) return;
+    const el = document.createElement('div');
+    el.className = 'ex-file'; el.dataset.idx = i;
+    el.innerHTML = `<span class="fi">▸</span>${f.name.split('/').pop()}`;
+    el.title = f.name;
+    el.addEventListener('click', () => selectFile(i));
+    exTree.appendChild(el);
+  });
+});
+
+function selectFile(i){
+  curFile = i;
+  const f = FILES[i];
+  document.querySelectorAll('.ex-file').forEach(el => el.classList.toggle('active', +el.dataset.idx === i));
+  const dir = f.name.includes('/') ? f.name.slice(0, f.name.lastIndexOf('/') + 1) : '';
+  const base = f.name.slice(dir.length);
+  document.getElementById('ex-path').innerHTML = `<span class="dir">${dir}</span>${base}`;
+  document.getElementById('ex-lang').textContent = f.lang;
+  document.getElementById('ex-desc').innerHTML = f.desc;
+  document.getElementById('ex-code').innerHTML = hl(fileText(f.id), f.lang);
+}
+document.getElementById('ex-copy').addEventListener('click', function(){ doCopy(fileText(FILES[curFile].id), this); });
+document.getElementById('ex-dl').addEventListener('click', function(){ download(FILES[curFile].name, fileText(FILES[curFile].id)); flashCopied(this); });
+selectFile(0);
+
+// bootstrap.sh — one paste scaffolds the entire repo
+function buildBootstrap(){
+  let s = '#!/usr/bin/env bash\n';
+  s += '# Scaffold the spec-driven Apigee X repo. Run in an EMPTY directory.\n';
+  s += '#   bash bootstrap.sh   (or: chmod +x bootstrap.sh && ./bootstrap.sh)\n';
+  s += 'set -euo pipefail\n\n';
+  FILES.forEach(f => {
+    const txt = fileText(f.id);
+    const dir = f.name.includes('/') ? f.name.slice(0, f.name.lastIndexOf('/')) : '';
+    if (dir) s += `mkdir -p ${dir}\n`;
+    s += `cat > ${f.name} <<'SDD_EOF'\n${txt}${txt.endsWith('\n') ? '' : '\n'}SDD_EOF\n`;
+    if (f.name.endsWith('.sh')) s += `chmod +x ${f.name}\n`;
+    s += '\n';
+  });
+  s += 'echo ""\n';
+  s += 'echo "✓ Spec-driven Apigee repo scaffolded."\n';
+  s += 'echo "  Next: npx spectral lint specs/accounts.yaml --ruleset .spectral.yaml"\n';
+  return s;
+}
+const bootBox = document.getElementById('boot-box');
+document.getElementById('boot-code').innerHTML = escapeHtml(buildBootstrap());
+document.getElementById('boot-copy').addEventListener('click', function(){ doCopy(buildBootstrap(), this); });
+document.getElementById('boot-copy2').addEventListener('click', function(){ doCopy(buildBootstrap(), this); });
+document.getElementById('boot-show').addEventListener('click', function(){
+  const open = bootBox.style.display !== 'none';
+  bootBox.style.display = open ? 'none' : 'block';
+  this.textContent = open ? 'View bootstrap script' : 'Hide bootstrap script';
+  if (!open) bootBox.scrollIntoView({ behavior:'smooth', block:'nearest' });
+});
+
+// open first stage by default
+openStage('lint');
+</script>
+</body>
+</html>

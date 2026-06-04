@@ -1,0 +1,12 @@
+# dependencies / build output
+node_modules/
+.mocks/
+/tmp/
+
+# generated bundles are build output (uncomment if you don't commit them)
+# apiproxies/
+
+# local archives & OS cruft
+files.zip
+.DS_Store
+*.log
